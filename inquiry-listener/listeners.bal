@@ -5,6 +5,8 @@
 // attached to five listeners and the decisions service to two. One task therefore runs at most
 // five investigations and two decisions at once. To change the limit, add or remove listener
 // declarations.
+// TODO(verify): that `ballerinax/aws.sqs` polls independently for one service attached to
+// several listeners (each listener creates its own receiver when the service is attached).
 //
 // Messages are never deleted automatically (`autoDelete: false`). A message is deleted only
 // after its work is saved, or when there is nothing left to do (for example a duplicate). If
