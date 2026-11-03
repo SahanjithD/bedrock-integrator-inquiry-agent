@@ -1,5 +1,8 @@
-// Types shared by the two SQS services and the case store.
+// Types shared by the HTTP entry point and the two actions.
 // They live in this submodule so they can be unit tested without AWS clients.
+
+# What the runtime is asked to do. The inquiry listener picks the action.
+public type Action "investigate"|"apply";
 
 # An investigation job, as the support console puts it on the jobs queue.
 public type InvestigationJob record {|
@@ -17,17 +20,6 @@ public type InvestigationJob record {|
     string submittedAt?;
 |};
 
-# A representative's decision, as the console puts it on the decisions queue. It carries no
-# action: the apply step always reads the proposal stored on the case.
-public type Decision record {|
-    # The case the decision is for
-    string caseId;
-    # Approve or reject the stored proposal
-    "APPROVED"|"REJECTED" decision;
-    # The proposal version the representative reviewed
-    int proposalVersion;
-|};
-
 # One fact the agent relied on.
 public type Evidence record {|
     # Where the fact came from: a tool name or a knowledge base source
@@ -40,13 +32,13 @@ public type Evidence record {|
 public type ProposedAction record {|
     # Gateway tool name of a write tool, e.g. `loyalty___creditPoints`
     string tool;
-    # Arguments for the tool, without `approvalId` (the apply step adds it)
+    # Arguments for the tool, without `approvalId` (the apply action adds it)
     map<json> arguments;
     # Why this change fixes the problem
     string rationale;
 |};
 
-# What an investigation produces.
+# What the investigate action returns.
 public type Findings record {|
     # Two or three sentences on what happened
     string summary;
@@ -64,15 +56,37 @@ public type Findings record {|
     string[] knowledgeSources = [];
 |};
 
-# Case statuses. The DynamoDB item stands in for a ticket in the team's support system.
-public enum CaseStatus {
-    QUEUED,
-    INVESTIGATING,
-    PENDING_APPROVAL,
-    NO_ACTION_PROPOSED,
-    APPLYING,
-    APPLIED,
-    REJECTED,
-    NEEDS_REVIEW,
-    FAILED
+# The body of `POST /invocations`, sent by the inquiry listener.
+public type InvocationRequest record {|
+    # Which action to run
+    Action action;
+    # The case this invocation belongs to
+    string caseId;
+    # The job to investigate. Required for `investigate`
+    InvestigationJob job?;
+    # The approved proposal version. Required for `apply`
+    int proposalVersion?;
+    # The approved proposal, as stored on the case. Required for `apply`
+    ProposedAction proposedAction?;
+    # The findings stored on the case, used for the resolved-case record. Optional for `apply`
+    Findings findings?;
+|};
+
+# Error codes returned in an `error` response.
+public enum ErrorCode {
+    # The request is malformed
+    INVALID_REQUEST = "InvalidRequest",
+    # The agent's proposal does not pass the checks in `validateProposal`
+    INVALID_PROPOSAL = "InvalidProposal",
+    # The investigation did not finish within its time budget
+    INVESTIGATION_TIMEOUT = "InvestigationTimeout",
+    # Anything else went wrong during the investigation
+    INVESTIGATION_FAILED = "InvestigationFailed",
+    # The write tool was not called (for example, the proposal names a tool that is not allowed)
+    APPLY_REJECTED = "ApplyRejected",
+    # The write tool was called and failed, or its outcome is unknown
+    APPLY_FAILED = "ApplyFailed"
 }
+
+# An error that carries the code returned to the listener.
+public type AgentError distinct error<record {| ErrorCode code; |}>;

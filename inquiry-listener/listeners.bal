@@ -1,30 +1,40 @@
-// Two WSO2 Integrator SQS listeners: one for investigation jobs, one for decisions.
+// WSO2 Integrator SQS listeners for the jobs and decisions queues.
+//
+// Concurrency: an `sqs:Listener` receives one message at a time and waits until the service
+// has handled it. Each agent call can stay open for several minutes, so the jobs service is
+// attached to five listeners and the decisions service to two. One task therefore runs at most
+// five investigations and two decisions at once. To change the limit, add or remove listener
+// declarations.
 //
 // Messages are never deleted automatically (`autoDelete: false`). A message is deleted only
-// after its work is saved, or when there is nothing left to do (for example a duplicate).
-// If processing fails, the message is made visible again after `retryDelaySeconds`, and SQS
-// moves it to the queue's DLQ after 3 receives (maxReceiveCount).
-//
-// Each listener receives one message at a time and waits for it to finish, so one ECS task
-// runs at most one investigation and one decision at a time. Scale with the service's
-// desired count.
+// after its work is saved, or when there is nothing left to do (for example a duplicate). If
+// processing fails, the message is made visible again after `retryDelaySeconds`, and SQS moves
+// it to the queue's DLQ after 3 receives (maxReceiveCount).
 
-import inquiry_agent.core;
+import inquiry_listener.core;
 
 import ballerina/log;
 import ballerinax/aws.auth;
 import ballerinax/aws.sqs;
 
-listener sqs:Listener jobListener = new ({region: awsRegion, auth: auth:DEFAULT_CREDENTIALS});
-listener sqs:Listener decisionListener = new ({region: awsRegion, auth: auth:DEFAULT_CREDENTIALS});
+final sqs:ConnectionConfig & readonly connection = {region: awsRegion, auth: auth:DEFAULT_CREDENTIALS};
+
+listener sqs:Listener jobListener1 = new (connection);
+listener sqs:Listener jobListener2 = new (connection);
+listener sqs:Listener jobListener3 = new (connection);
+listener sqs:Listener jobListener4 = new (connection);
+listener sqs:Listener jobListener5 = new (connection);
+
+listener sqs:Listener decisionListener1 = new (connection);
+listener sqs:Listener decisionListener2 = new (connection);
 
 @sqs:ServiceConfig {
     queueUrl: jobQueueUrl,
     autoDelete: false,
-    // The received job stays hidden for longer than the longest expected investigation.
+    // A received job stays hidden for longer than the longest agent call (15 minutes).
     config: {waitTime: 20, visibilityTimeout: jobVisibilitySeconds, pollInterval: 1}
 }
-service on jobListener {
+service on jobListener1, jobListener2, jobListener3, jobListener4, jobListener5 {
 
     remote function onMessage(sqs:Caller caller, sqs:Message message) returns error? {
         string messageId = message?.messageId ?: "";
@@ -47,7 +57,7 @@ service on jobListener {
     autoDelete: false,
     config: {waitTime: 20, visibilityTimeout: decisionVisibilitySeconds, pollInterval: 1}
 }
-service on decisionListener {
+service on decisionListener1, decisionListener2 {
 
     remote function onMessage(sqs:Caller caller, sqs:Message message) returns error? {
         error? result = processDecision(message);

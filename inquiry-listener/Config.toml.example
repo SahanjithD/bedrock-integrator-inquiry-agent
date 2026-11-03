@@ -1,0 +1,19 @@
+# Copy to Config.toml for a local run. On Amazon ECS, infra/cloudformation/listener-ecs.yaml
+# passes the same settings in the BAL_CONFIG_DATA environment variable. No secrets: AWS requests
+# are signed with the task role (or your local AWS credentials).
+
+awsRegion = "us-east-1"
+
+jobQueueUrl = "https://sqs.us-east-1.amazonaws.com/<ACCOUNT_ID>/inquiry-agent-jobs"
+decisionQueueUrl = "https://sqs.us-east-1.amazonaws.com/<ACCOUNT_ID>/inquiry-agent-decisions"
+# Above AgentCore's 15-minute limit for a synchronous call.
+jobVisibilitySeconds = 1200
+decisionVisibilitySeconds = 1200
+retryDelaySeconds = 60
+maxAttempts = 3
+
+caseTable = "inquiry-agent-cases"
+
+agentRuntimeArn = "arn:aws:bedrock-agentcore:us-east-1:<ACCOUNT_ID>:runtime/<RUNTIME_ID>"
+agentRuntimeQualifier = "DEFAULT"
+agentTimeoutSeconds = 900

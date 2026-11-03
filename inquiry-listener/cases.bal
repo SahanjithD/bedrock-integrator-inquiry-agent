@@ -8,7 +8,7 @@
 //   draftReply (S), proposalVersion (N)                                 - investigation result
 //   applyResult (S, JSON), failureReason (S), createdAt (S), updatedAt (S)
 
-import inquiry_agent.core;
+import inquiry_listener.core;
 
 import ballerina/time;
 import ballerinax/aws;
@@ -16,13 +16,14 @@ import ballerinax/aws.dynamodb;
 
 const string CONDITION_FAILED = "ConditionalCheckFailedException";
 
-# The parts of a case the apply step reads.
+# The parts of a case the apply step reads. Findings and the proposal are passed to the agent
+# as stored.
 type StoredCase record {|
     string caseId;
     string status;
     int proposalVersion;
-    core:Findings? findings;
-    core:ProposedAction? proposedAction;
+    map<json>? findings;
+    map<json>? proposedAction;
 |};
 
 # The result of an investigation claim.
@@ -66,10 +67,11 @@ isolated function claimForInvestigation(string caseId, string messageId) returns
 #
 # + caseId - The case ID
 # + messageId - The SQS message ID that holds the claim
-# + findings - The checked findings
+# + findings - The findings returned by the agent (already checked by the agent)
 # + return - `true` if saved, `false` if this message no longer holds the claim
-isolated function saveFindings(string caseId, string messageId, core:Findings findings) returns boolean|error {
-    core:ProposedAction? action = findings?.proposedAction;
+isolated function saveFindings(string caseId, string messageId, map<json> findings) returns boolean|error {
+    json action = findings["proposedAction"];
+    json reply = findings["draftReply"];
     map<dynamodb:AttributeValue>? updated = check conditionalUpdate(caseId,
         "SET #status = :next, findings = :findings, proposedAction = :action, draftReply = :reply, " +
             "updatedAt = :now ADD proposalVersion :one",
@@ -78,7 +80,7 @@ isolated function saveFindings(string caseId, string messageId, core:Findings fi
             ":next": {S: action is () ? core:NO_ACTION_PROPOSED : core:PENDING_APPROVAL},
             ":findings": {S: findings.toJsonString()},
             ":action": {S: action is () ? "null" : action.toJsonString()},
-            ":reply": {S: findings.draftReply},
+            ":reply": {S: reply is string ? reply : ""},
             ":investigating": {S: core:INVESTIGATING},
             ":messageId": {S: messageId},
             ":one": {N: "1"}
@@ -220,15 +222,15 @@ isolated function loadCase(string caseId) returns StoredCase|error {
     if item is () {
         return error(string `Case ${caseId} not found`);
     }
-    core:ProposedAction? proposedAction = ();
+    map<json>? proposedAction = ();
     string? actionJson = item["proposedAction"]?.S;
     if actionJson is string && actionJson != "null" {
-        proposedAction = check (check actionJson.fromJsonString()).cloneWithType();
+        proposedAction = check (check actionJson.fromJsonString()).ensureType();
     }
-    core:Findings? findings = ();
+    map<json>? findings = ();
     string? findingsJson = item["findings"]?.S;
     if findingsJson is string {
-        findings = check (check findingsJson.fromJsonString()).cloneWithType();
+        findings = check (check findingsJson.fromJsonString()).ensureType();
     }
     return {
         caseId,

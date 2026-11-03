@@ -1,25 +1,9 @@
-// Settings. On Amazon ECS they arrive in the `BAL_CONFIG_DATA` environment variable, set by
-// infra/cloudformation/agent-ecs.yaml. The Cognito client secrets are not settings: ECS injects
-// them from AWS Secrets Manager as environment variables (see clients.bal).
+// Settings. On AgentCore Runtime they arrive in the `BAL_CONFIG_DATA` environment variable,
+// which scripts/04-agent.sh renders. No secrets go here: the Cognito client secrets are read
+// from AWS Secrets Manager at startup.
 
 # AWS Region for every AWS call.
 configurable string awsRegion = "us-east-1";
-
-# Queue with investigation jobs from the support console.
-configurable string jobQueueUrl = ?;
-# Queue with approve or reject decisions from the support console.
-configurable string decisionQueueUrl = ?;
-
-// An investigation can take several minutes. The jobs queue hides a received message for
-// longer than the longest expected run, so another task does not pick it up meanwhile.
-# Seconds a received job stays hidden from other consumers.
-configurable int jobVisibilitySeconds = 900;
-# Seconds a received decision stays hidden from other consumers.
-configurable int decisionVisibilitySeconds = 300;
-# Seconds before a failed message is retried. SQS moves it to the DLQ after 3 receives.
-configurable int retryDelaySeconds = 60;
-# Investigation attempts before a case is marked FAILED. Keep equal to the queue's maxReceiveCount.
-configurable int maxAttempts = 3;
 
 // Claude Sonnet 5.5 through the US cross-Region inference profile. The base model ID
 // is not callable on demand; use a `us.` or `global.` profile ID.
@@ -31,7 +15,12 @@ configurable int maxTokens = 4096;
 # Upper limit on reasoning and tool-call cycles per investigation.
 configurable int maxIterations = 12;
 
-# Guardrail ID or ARN. The guardrail masks personal data in the model's output.
+// AgentCore Runtime ends a synchronous InvokeAgentRuntime request after 15 minutes. The agent
+// stops an investigation well before that, so the inquiry listener always gets an answer.
+# Seconds an investigation may run before the agent gives up and returns an error.
+configurable decimal investigationTimeoutSeconds = 600;
+
+# Guardrail ID or ARN. The guardrail masks personal data in model input and output.
 configurable string guardrailId = ?;
 # Guardrail version, e.g. `1`.
 configurable string guardrailVersion = ?;
@@ -43,18 +32,17 @@ configurable string customDataSourceId = ?;
 # Passages returned per knowledge base search.
 configurable int knowledgeResults = 5;
 
-# DynamoDB table that holds one item per case.
-configurable string caseTable = ?;
-
 # AgentCore Gateway MCP endpoint, e.g. `https://<gateway-id>.gateway.bedrock-agentcore.<region>.amazonaws.com/mcp`.
 configurable string gatewayUrl = ?;
 # Cognito token endpoint, e.g. `https://<domain>.auth.<region>.amazoncognito.com/oauth2/token`.
 configurable string tokenUrl = ?;
-# App client used for investigations (read scope only).
+# App client used by the investigate action (read scope only).
 configurable string investigatorClientId = ?;
-# App client used to apply approved changes (write scope only).
+# App client used by the apply action (write scope only).
 configurable string applierClientId = ?;
-# OAuth scopes requested for investigations.
+# OAuth scopes requested by the investigate action.
 configurable string[] readScopes = ["inquiry-gateway/read"];
-# OAuth scopes requested to apply approved changes.
+# OAuth scopes requested by the apply action.
 configurable string[] writeScopes = ["inquiry-gateway/write"];
+# Secrets Manager secret with `investigatorClientSecret` and `applierClientSecret`.
+configurable string clientSecretsArn = ?;
