@@ -1,0 +1,163 @@
+{
+  "reservations": [
+    {
+      "reservationId": "R-48213",
+      "guestRef": "G-10427",
+      "guestName": "Jordan Sample",
+      "guestEmail": "jordan.sample@example.com",
+      "property": "Coastal resort",
+      "roomType": "Ocean view king",
+      "checkIn": "2026-12-18",
+      "checkOut": "2026-12-21",
+      "status": "CONFIRMED",
+      "version": 3,
+      "bookedVia": "web",
+      "updatedAt": "2026-10-28T19:42:10Z"
+    },
+    {
+      "reservationId": "R-44102",
+      "guestRef": "G-10427",
+      "guestName": "Jordan Sample",
+      "guestEmail": "jordan.sample@example.com",
+      "property": "Mountain lodge",
+      "roomType": "Standard queen",
+      "checkIn": "2026-06-05",
+      "checkOut": "2026-06-07",
+      "status": "COMPLETED",
+      "version": 1,
+      "bookedVia": "mobile app",
+      "updatedAt": "2026-06-07T11:02:00Z"
+    },
+    {
+      "reservationId": "R-51190",
+      "guestRef": "G-15562",
+      "guestName": "Riley Example",
+      "guestEmail": "riley.example@example.com",
+      "property": "City hotel",
+      "roomType": "Deluxe double",
+      "checkIn": "2026-10-30",
+      "checkOut": "2026-11-01",
+      "status": "COMPLETED",
+      "version": 1,
+      "bookedVia": "web",
+      "updatedAt": "2026-11-01T12:20:00Z"
+    },
+    {
+      "reservationId": "R-50642",
+      "guestRef": "G-20934",
+      "guestName": "Casey Placeholder",
+      "guestEmail": "casey.placeholder@example.com",
+      "property": "Coastal resort",
+      "roomType": "Garden suite",
+      "checkIn": "2026-10-23",
+      "checkOut": "2026-10-26",
+      "status": "COMPLETED",
+      "version": 1,
+      "bookedVia": "phone",
+      "updatedAt": "2026-10-26T10:48:00Z"
+    }
+  ],
+  "history": [
+    {
+      "reservationId": "R-48213",
+      "version": 1,
+      "changedAt": "2026-08-02T10:15:00Z",
+      "channel": "web",
+      "change": "Booked for 2026-12-11 to 2026-12-14",
+      "confirmationJob": "SENT"
+    },
+    {
+      "reservationId": "R-48213",
+      "version": 2,
+      "changedAt": "2026-09-14T08:30:00Z",
+      "channel": "web",
+      "change": "Room type changed from Garden king to Ocean view king",
+      "confirmationJob": "SENT"
+    },
+    {
+      "reservationId": "R-48213",
+      "version": 3,
+      "changedAt": "2026-10-28T19:42:10Z",
+      "channel": "mobile app",
+      "change": "Dates changed from 2026-12-11 to 2026-12-14, to 2026-12-18 to 2026-12-21",
+      "confirmationJob": "FAILED",
+      "confirmationJobError": "Confirmation template service timed out; the job was not retried"
+    },
+    {
+      "reservationId": "R-44102",
+      "version": 1,
+      "changedAt": "2026-05-20T17:05:00Z",
+      "channel": "mobile app",
+      "change": "Booked for 2026-06-05 to 2026-06-07",
+      "confirmationJob": "SENT"
+    },
+    {
+      "reservationId": "R-51190",
+      "version": 1,
+      "changedAt": "2026-10-02T09:12:00Z",
+      "channel": "web",
+      "change": "Booked for 2026-10-30 to 2026-11-01",
+      "confirmationJob": "SENT"
+    },
+    {
+      "reservationId": "R-50642",
+      "version": 1,
+      "changedAt": "2026-09-29T15:40:00Z",
+      "channel": "phone",
+      "change": "Booked for 2026-10-23 to 2026-10-26",
+      "confirmationJob": "SENT"
+    }
+  ],
+  "confirmations": [
+    {
+      "confirmationNumber": "CNF-48213-1",
+      "reservationId": "R-48213",
+      "reservationVersion": 1,
+      "checkIn": "2026-12-11",
+      "checkOut": "2026-12-14",
+      "roomType": "Garden king",
+      "issuedAt": "2026-08-02T10:15:30Z",
+      "deliveryStatus": "DELIVERED"
+    },
+    {
+      "confirmationNumber": "CNF-48213-2",
+      "reservationId": "R-48213",
+      "reservationVersion": 2,
+      "checkIn": "2026-12-11",
+      "checkOut": "2026-12-14",
+      "roomType": "Ocean view king",
+      "issuedAt": "2026-09-14T08:30:40Z",
+      "deliveryStatus": "DELIVERED"
+    },
+    {
+      "confirmationNumber": "CNF-44102-1",
+      "reservationId": "R-44102",
+      "reservationVersion": 1,
+      "checkIn": "2026-06-05",
+      "checkOut": "2026-06-07",
+      "roomType": "Standard queen",
+      "issuedAt": "2026-05-20T17:05:20Z",
+      "deliveryStatus": "DELIVERED"
+    },
+    {
+      "confirmationNumber": "CNF-51190-1",
+      "reservationId": "R-51190",
+      "reservationVersion": 1,
+      "checkIn": "2026-10-30",
+      "checkOut": "2026-11-01",
+      "roomType": "Deluxe double",
+      "issuedAt": "2026-10-02T09:12:25Z",
+      "deliveryStatus": "DELIVERED"
+    },
+    {
+      "confirmationNumber": "CNF-50642-1",
+      "reservationId": "R-50642",
+      "reservationVersion": 1,
+      "checkIn": "2026-10-23",
+      "checkOut": "2026-10-26",
+      "roomType": "Garden suite",
+      "issuedAt": "2026-09-29T15:40:15Z",
+      "deliveryStatus": "DELIVERED"
+    }
+  ]
+}

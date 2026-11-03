@@ -1,0 +1,11 @@
+{
+  "name": "",
+  "credentialProviderVendor": "CustomOauth2",
+  "oauth2ProviderConfigInput": {
+    "customOauth2ProviderConfig": {
+      "oauthDiscovery": {"discoveryUrl": ""},
+      "clientId": "",
+      "clientSecret": ""
+    }
+  }
+}
