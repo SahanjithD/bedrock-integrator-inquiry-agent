@@ -1,9 +1,9 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >-
-  Customer inquiry agent sample - foundation resources: queues, case table, knowledge
-  bucket, container repositories, guardrail, Cognito for gateway auth, and IAM roles.
-  AgentCore runtimes, the gateway and the knowledge base are created by the scripts in
-  scripts/. Synthetic data only.
+  Customer inquiry agent sample - foundation resources: queues with DLQs, case table,
+  knowledge bucket, container repositories, guardrail, Cognito for gateway auth, and IAM
+  roles. AgentCore runtimes, the gateway, the knowledge base and the Lambda dispatcher are
+  created by the scripts in scripts/. Synthetic data only.
 
 Parameters:
   ProjectName:
@@ -18,8 +18,9 @@ Parameters:
 
 Resources:
   # ---------------------------------------------------------------------------
-  # Queues. Pipes start one workflow per message; failed starts go to the DLQs.
-  # Jobs that fail inside a workflow go to the failure queue.
+  # Queues. A Lambda event source mapping consumes each one. The visibility timeout is
+  # 6x the dispatcher's 900-second function timeout. A message that fails three
+  # times (maxReceiveCount) moves to its DLQ.
   # ---------------------------------------------------------------------------
   JobDeadLetterQueue:
     Type: AWS::SQS::Queue
@@ -32,7 +33,7 @@ Resources:
     Type: AWS::SQS::Queue
     Properties:
       QueueName: !Sub ${ProjectName}-jobs
-      VisibilityTimeout: 120
+      VisibilityTimeout: 5400
       MessageRetentionPeriod: 345600
       SqsManagedSseEnabled: true
       RedrivePolicy:
@@ -50,19 +51,12 @@ Resources:
     Type: AWS::SQS::Queue
     Properties:
       QueueName: !Sub ${ProjectName}-decisions
-      VisibilityTimeout: 120
+      VisibilityTimeout: 5400
       MessageRetentionPeriod: 345600
       SqsManagedSseEnabled: true
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt DecisionDeadLetterQueue.Arn
         maxReceiveCount: 3
-
-  FailureQueue:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub ${ProjectName}-failures
-      MessageRetentionPeriod: 1209600
-      SqsManagedSseEnabled: true
 
   # ---------------------------------------------------------------------------
   # Case table. One item per case; stands in for a ticket in a support system.
@@ -85,7 +79,7 @@ Resources:
 
   # ---------------------------------------------------------------------------
   # Knowledge bucket: runbooks and policies under knowledge/ (S3 data source),
-  # packaged templates under deploy/.
+  # the packaged dispatcher code under deploy/.
   # ---------------------------------------------------------------------------
   KnowledgeBucket:
     Type: AWS::S3::Bucket
@@ -337,14 +331,6 @@ Resources:
                 # The knowledge base is created after this stack, by scripts/03-knowledge-base.sh.
                 Resource: !Sub arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/*
               # TODO(verify): permissions for the managed reranking model, if the account uses it.
-              - Sid: ReadAndUpdateCases
-                Effect: Allow
-                Action: [dynamodb:GetItem, dynamodb:UpdateItem]
-                Resource: !GetAtt CaseTable.Arn
-              - Sid: ReportToStepFunctions
-                Effect: Allow
-                Action: [states:SendTaskSuccess, states:SendTaskFailure]
-                Resource: !Sub arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${ProjectName}-*
               - Sid: ReadGatewayClientSecrets
                 Effect: Allow
                 Action: secretsmanager:GetSecretValue
@@ -508,14 +494,10 @@ Outputs:
     Value: !GetAtt DecisionQueue.Arn
     Export:
       Name: !Sub ${AWS::StackName}-DecisionQueueArn
-  FailureQueueUrl:
-    Value: !Ref FailureQueue
-    Export:
-      Name: !Sub ${AWS::StackName}-FailureQueueUrl
-  FailureQueueArn:
-    Value: !GetAtt FailureQueue.Arn
-    Export:
-      Name: !Sub ${AWS::StackName}-FailureQueueArn
+  JobDeadLetterQueueUrl:
+    Value: !Ref JobDeadLetterQueue
+  DecisionDeadLetterQueueUrl:
+    Value: !Ref DecisionDeadLetterQueue
   CaseTableName:
     Value: !Ref CaseTable
     Export:

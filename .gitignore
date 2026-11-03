@@ -16,3 +16,4 @@ scripts/env.sh
 
 # Python
 __pycache__/
+.pytest_cache/
