@@ -94,3 +94,32 @@ wait_for() {
 urlencode() {
     jq -rn --arg v "$1" '$v|@uri'
 }
+
+# Logs Docker in to the account's ECR registry.
+ecr_login() {
+    local registry="$1"
+    log "Logging in to ${registry}"
+    aws ecr get-login-password | docker login --username AWS --password-stdin "${registry}"
+}
+
+# A tag for this build: the git commit plus a timestamp.
+image_tag() {
+    printf '%s-%s' "$(git -C "${REPO_ROOT}" rev-parse --short HEAD 2>/dev/null || echo local)" "$(date +%s)"
+}
+
+# Builds an ARM64 image and pushes it.
+build_and_push() {
+    local image="$1" context="$2"
+    log "Building ${image}"
+    docker buildx build --platform linux/arm64 --provenance=false -t "${image}" --push "${context}"
+}
+
+# Deletes every image in an ECR repository (if the repository exists).
+delete_images() {
+    local repository="$1" ids
+    ids="$(aws ecr list-images --repository-name "${repository}" --query 'imageIds' --output json 2>/dev/null || echo '[]')"
+    if [[ "${ids}" != "[]" ]]; then
+        log "Deleting images in ${repository}"
+        aws ecr batch-delete-image --repository-name "${repository}" --image-ids "${ids}" >/dev/null
+    fi
+}

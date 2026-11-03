@@ -3,7 +3,8 @@
 
 A representative uses it to send an investigation job, read the agent's findings, and
 approve or reject the proposed change. The case item in DynamoDB stands in for the ticket a
-real support system would hold.
+real support system would hold. The inquiry agent on Amazon ECS picks up jobs and decisions
+from the two SQS queues.
 
     python3 scripts/console.py submit --sample 1
     python3 scripts/console.py show CASE-20261103-1a2b3c --watch
@@ -12,8 +13,8 @@ real support system would hold.
     python3 scripts/console.py failures
 
 Settings come from .deploy/outputs.env (written by the deploy scripts). Environment
-variables CASE_TABLE, JOB_QUEUE_URL, DECISION_QUEUE_URL, FAILURE_QUEUE_URL and AWS_REGION
-override them.
+variables CASE_TABLE, JOB_QUEUE_URL, DECISION_QUEUE_URL, JOB_DLQ_URL, DECISION_DLQ_URL and
+AWS_REGION override them.
 """
 
 import argparse
@@ -32,7 +33,7 @@ OUTPUTS_FILE = REPO_ROOT / ".deploy" / "outputs.env"
 SAMPLES_FILE = REPO_ROOT / "data" / "sample-inquiries.json"
 
 # Statuses where the workflow is still working on the case.
-IN_PROGRESS = {"RECEIVED", "INVESTIGATING", "APPLYING"}
+IN_PROGRESS = {"QUEUED", "INVESTIGATING", "APPLYING"}
 # Statuses where the case is waiting for a person.
 WAITING = {"PENDING_APPROVAL"}
 
@@ -50,7 +51,8 @@ def load_settings():
         "table": os.environ.get("CASE_TABLE") or values.get("CaseTableName"),
         "job_queue": os.environ.get("JOB_QUEUE_URL") or values.get("JobQueueUrl"),
         "decision_queue": os.environ.get("DECISION_QUEUE_URL") or values.get("DecisionQueueUrl"),
-        "failure_queue": os.environ.get("FAILURE_QUEUE_URL") or values.get("FailureQueueUrl"),
+        "job_dlq": os.environ.get("JOB_DLQ_URL") or values.get("JobDeadLetterQueueUrl"),
+        "decision_dlq": os.environ.get("DECISION_DLQ_URL") or values.get("DecisionDeadLetterQueueUrl"),
     }
     missing = [name for name in ("table", "job_queue", "decision_queue") if not settings[name]]
     if missing:
@@ -120,7 +122,7 @@ def cmd_submit(args, settings):
         TableName=settings["table"],
         Item={
             "caseId": {"S": case_id},
-            "status": {"S": "RECEIVED"},
+            "status": {"S": "QUEUED"},
             "job": {"S": json.dumps(job)},
             "createdAt": {"S": job["submittedAt"]},
             "updatedAt": {"S": job["submittedAt"]},
@@ -128,6 +130,9 @@ def cmd_submit(args, settings):
         ConditionExpression="attribute_not_exists(caseId)",
     )
     sqs.send_message(QueueUrl=settings["job_queue"], MessageBody=json.dumps(job))
+    if args.id_only:
+        print(case_id)
+        return
     print(f"Submitted {case_id}")
     print(f"  Inquiry: {inquiry}")
     print(f"  Next:    python3 scripts/console.py show {case_id} --watch")
@@ -206,19 +211,24 @@ def cmd_decide(args, settings):
 
 
 def cmd_failures(_args, settings):
-    if not settings["failure_queue"]:
-        sys.exit("FailureQueueUrl is not set.")
     _, sqs = clients(settings)
-    # Peek only: VisibilityTimeout=0 leaves the messages on the queue.
-    messages = sqs.receive_message(
-        QueueUrl=settings["failure_queue"], MaxNumberOfMessages=10, VisibilityTimeout=0, WaitTimeSeconds=1
-    ).get("Messages", [])
-    if not messages:
-        print("No failed jobs.")
-    for message in messages:
-        body = json.loads(message["Body"])
-        print(f"{body.get('caseId', '-'):<24} {body.get('stage', '-'):<12} {body.get('error', '-')}: "
-              f"{(body.get('cause') or '')[:120]}")
+    found = False
+    for label, key in (("jobs DLQ", "job_dlq"), ("decisions DLQ", "decision_dlq")):
+        if not settings[key]:
+            continue
+        # Peek only: VisibilityTimeout=0 leaves the messages on the queue.
+        messages = sqs.receive_message(
+            QueueUrl=settings[key], MaxNumberOfMessages=10, VisibilityTimeout=0, WaitTimeSeconds=1
+        ).get("Messages", [])
+        for message in messages:
+            found = True
+            try:
+                body = json.loads(message["Body"])
+            except json.JSONDecodeError:
+                body = {}
+            print(f"{label:<14} {body.get('caseId', '-'):<24} {message['Body'][:100]}")
+    if not found:
+        print("No messages in the dead-letter queues.")
 
 
 def main():
@@ -231,6 +241,7 @@ def main():
     submit.add_argument("--customer-ref", help="guest reference, e.g. G-10427")
     submit.add_argument("--channel", default="email", help="email, chat or phone")
     submit.add_argument("--context", nargs="*", metavar="KEY=VALUE", help="identifiers on file, e.g. reservationId=R-48213")
+    submit.add_argument("--id-only", action="store_true", help="print only the new case ID")
     submit.set_defaults(func=cmd_submit)
 
     show = sub.add_parser("show", help="show a case")
@@ -250,7 +261,7 @@ def main():
     choice.add_argument("--reject", action="store_true")
     decide.set_defaults(func=cmd_decide)
 
-    failures = sub.add_parser("failures", help="peek at jobs that failed")
+    failures = sub.add_parser("failures", help="peek at messages in the dead-letter queues")
     failures.set_defaults(func=cmd_failures)
 
     args = parser.parse_args()

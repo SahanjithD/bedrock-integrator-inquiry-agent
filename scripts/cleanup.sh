@@ -6,16 +6,19 @@ require aws python3
 
 try() { "$@" >/dev/null 2>&1 || warn "Skipped (already gone or failed): $*"; }
 
-log "Deleting stack ${WORKFLOWS_STACK}"
-try aws cloudformation delete-stack --stack-name "${WORKFLOWS_STACK}"
-try aws cloudformation wait stack-delete-complete --stack-name "${WORKFLOWS_STACK}"
+delete_stack() {
+    local stack="$1"
+    log "Deleting stack ${stack}"
+    try aws cloudformation delete-stack --stack-name "${stack}"
+    try aws cloudformation wait stack-delete-complete --stack-name "${stack}"
+}
 
-if [[ -n "${AgentRuntimeId:-}" ]]; then
-    log "Deleting the inquiry agent runtime"
-    try aws bedrock-agentcore-control delete-agent-runtime --agent-runtime-id "${AgentRuntimeId}"
-    forget AgentRuntimeId; forget AgentRuntimeArn
-fi
+# --- Step 4: the agent on ECS -------------------------------------------------
+delete_images "${PROJECT_NAME}/inquiry-agent" || true
+delete_stack "${AGENT_STACK}"
+for key in AgentRepositoryUri AgentImageTag ClusterName ServiceName AgentLogGroupName; do forget "${key}"; done
 
+# --- Step 3: gateway, MCP runtimes, repositories ------------------------------
 if [[ -n "${GatewayId:-}" ]]; then
     for key in ReservationTargetId LoyaltyTargetId PaymentTargetId; do
         if [[ -n "${!key:-}" ]]; then
@@ -42,10 +45,16 @@ for server in Reservation Loyalty Payment; do
     if [[ -n "${!key:-}" ]]; then
         log "Deleting the ${server,,} MCP runtime"
         try aws bedrock-agentcore-control delete-agent-runtime --agent-runtime-id "${!key}"
-        forget "${key}"; forget "${server}McpRuntimeArn"
+        forget "${key}"; forget "${server}McpRuntimeArn"; forget "${server}McpImage"
     fi
 done
 
+for server in reservation loyalty payment; do
+    delete_images "${PROJECT_NAME}/${server}-mcp" || true
+done
+delete_stack "${MCP_STACK}"
+
+# --- Step 2: knowledge base and guardrail -------------------------------------
 if [[ -n "${KnowledgeBaseId:-}" ]]; then
     for key in S3DataSourceId CustomDataSourceId; do
         if [[ -n "${!key:-}" ]]; then
@@ -59,7 +68,9 @@ if [[ -n "${KnowledgeBaseId:-}" ]]; then
     try aws bedrock-agent delete-knowledge-base --knowledge-base-id "${KnowledgeBaseId}"
     forget KnowledgeBaseId
 fi
+delete_stack "${KNOWLEDGE_STACK}"
 
+# --- Step 1: foundation --------------------------------------------------------
 if [[ -n "${KnowledgeBucketName:-}" ]]; then
     log "Emptying s3://${KnowledgeBucketName} (all object versions)"
     BUCKET="${KnowledgeBucketName}" python3 - <<'PY' || warn "Could not empty the bucket"
@@ -77,9 +88,7 @@ if [[ -n "${GatewayClientSecretsArn:-}" ]]; then
         --force-delete-without-recovery
 fi
 
-log "Deleting stack ${FOUNDATION_STACK}"
-try aws cloudformation delete-stack --stack-name "${FOUNDATION_STACK}"
-try aws cloudformation wait stack-delete-complete --stack-name "${FOUNDATION_STACK}"
+delete_stack "${FOUNDATION_STACK}"
 
-rm -f "${OUTPUTS_FILE}" "${STATE_DIR}"/*.json "${STATE_DIR}"/*.yaml
-log "Clean-up finished. Check the console for anything reported as skipped above."
+rm -f "${OUTPUTS_FILE}" "${STATE_DIR}"/*.json
+log "Clean-up finished. Check the output above for anything reported as skipped."

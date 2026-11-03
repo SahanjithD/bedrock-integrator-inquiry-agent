@@ -11,4 +11,6 @@ export COGNITO_DOMAIN_PREFIX="inquiry-agent-change-me"
 export MODEL_ID="us.anthropic.claude-sonnet-5-5"
 
 export FOUNDATION_STACK="${PROJECT_NAME}-foundation"
-export WORKFLOWS_STACK="${PROJECT_NAME}-workflows"
+export KNOWLEDGE_STACK="${PROJECT_NAME}-knowledge"
+export MCP_STACK="${PROJECT_NAME}-mcp-servers"
+export AGENT_STACK="${PROJECT_NAME}-agent"
