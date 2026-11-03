@@ -36,81 +36,63 @@ function acceptsFindingsWithoutProposal() {
 
 @test:Config
 function rejectsReadToolAsAction() {
-    AgentError? result = validateProposal(findingsWith({
+    InvalidProposal? result = validateProposal(findingsWith({
         tool: "loyalty___listStays",
         arguments: {memberId: "M-77310"},
         rationale: "Not a write tool."
     }));
-    test:assertTrue(result is AgentError);
+    test:assertTrue(result is InvalidProposal);
 }
 
 @test:Config
 function rejectsMissingArgument() {
-    AgentError? result = validateProposal(findingsWith({
+    InvalidProposal? result = validateProposal(findingsWith({
         tool: "loyalty___creditPoints",
         arguments: {memberId: "M-77310", stayId: "S-90551"},
         rationale: "Points missing."
     }));
-    test:assertTrue(result is AgentError);
+    test:assertTrue(result is InvalidProposal);
 }
 
 @test:Config
 function rejectsIdNotInEvidence() {
-    AgentError? result = validateProposal(findingsWith({
+    InvalidProposal? result = validateProposal(findingsWith({
         tool: "loyalty___creditPoints",
         arguments: {memberId: "M-00000", stayId: "S-90551", points: 3150},
         rationale: "Wrong member."
     }));
-    test:assertTrue(result is AgentError);
+    test:assertTrue(result is InvalidProposal);
 }
 
 @test:Config
 function rejectsProposedApprovalId() {
-    AgentError? result = validateProposal(findingsWith({
+    InvalidProposal? result = validateProposal(findingsWith({
         tool: "loyalty___creditPoints",
         arguments: {memberId: "M-77310", stayId: "S-90551", points: 3150, approvalId: "self-approved"},
         rationale: "Tries to approve itself."
     }));
-    test:assertTrue(result is AgentError);
-    if result is AgentError {
-        test:assertEquals(result.detail().code, INVALID_PROPOSAL);
-    }
+    test:assertTrue(result is InvalidProposal);
 }
 
 @test:Config
-function checksInvestigateRequest() {
-    InvocationRequest missingJob = {action: "investigate", taskToken: "token", caseId: "CASE-1"};
-    test:assertTrue(checkRequest(missingJob) is string);
+function checksJob() {
+    InvestigationJob empty = {caseId: "CASE-1", customerRef: "G-10427", inquiry: "  "};
+    test:assertTrue(checkJob(empty) is string);
 
-    InvocationRequest ok = {
-        action: "investigate",
-        taskToken: "token",
-        caseId: "CASE-1",
-        job: {caseId: "CASE-1", customerRef: "G-10427", inquiry: "My confirmation shows old dates."}
-    };
-    test:assertEquals(checkRequest(ok), ());
+    InvestigationJob ok = {caseId: "CASE-1", customerRef: "G-10427", inquiry: "My confirmation shows old dates."};
+    test:assertEquals(checkJob(ok), ());
 }
 
 @test:Config
-function checksApplyRequest() {
-    InvocationRequest noVersion = {action: "apply", taskToken: "token", caseId: "CASE-1"};
-    test:assertTrue(checkRequest(noVersion) is string);
+function checksDecision() {
+    Decision noVersion = {caseId: "CASE-1", decision: "APPROVED", proposalVersion: 0};
+    test:assertTrue(checkDecision(noVersion) is string);
 
-    InvocationRequest ok = {action: "apply", taskToken: "token", caseId: "CASE-1", proposalVersion: 1};
-    test:assertEquals(checkRequest(ok), ());
+    Decision ok = {caseId: "CASE-1", decision: "REJECTED", proposalVersion: 1};
+    test:assertEquals(checkDecision(ok), ());
 }
 
 @test:Config
 function buildsApprovalId() {
     test:assertEquals(approvalIdFor("CASE-1", 2), "CASE-1#2");
-}
-
-@test:Config
-function reportsBusyWhileWorkRuns() {
-    jobStarted();
-    test:assertEquals(currentStatus().status, "HealthyBusy");
-    int changedAt = currentStatus().time_of_last_update;
-    jobFinished();
-    test:assertEquals(currentStatus().status, "Healthy");
-    test:assertTrue(currentStatus().time_of_last_update >= changedAt);
 }

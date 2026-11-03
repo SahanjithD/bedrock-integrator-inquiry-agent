@@ -1,4 +1,4 @@
-# AgentCore Runtime runs ARM64 containers. Build with:
+# The ECS task definition uses ARM64 (Graviton) Fargate tasks. Build with:
 #   docker buildx build --platform linux/arm64 -t inquiry-agent .
 #
 # The build stage runs on the build machine's own platform (the JAR is platform independent).
@@ -13,5 +13,5 @@ RUN groupadd --system app && useradd --system --gid app app
 WORKDIR /app
 COPY --from=build /home/ballerina/src/target/bin/inquiry_agent.jar /app/app.jar
 USER app
-EXPOSE 8080
+# No ports: the agent only polls SQS and calls AWS services.
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]

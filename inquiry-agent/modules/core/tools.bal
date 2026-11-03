@@ -12,7 +12,7 @@ public const string GATEWAY_TOOL_SEPARATOR = "___";
 public isolated function gatewayToolName(string target, string tool) returns string =>
     target + GATEWAY_TOOL_SEPARATOR + tool;
 
-# Read-only tools. The investigate action loads only these.
+# Read-only tools. The investigate service loads only these.
 public final readonly & string[] READ_TOOLS = [
     gatewayToolName("reservation", "findReservations"),
     gatewayToolName("reservation", "getReservation"),
@@ -32,11 +32,11 @@ public type WriteToolSpec record {|
     string tool;
     # What the tool changes
     string description;
-    # Argument names the proposal must include (`approvalId` is added at apply time)
+    # Argument names the proposal must include (`approvalId` is added by the apply step)
     string[] requiredArguments;
 |};
 
-# Write tools. Only the apply action calls them, and only with a stored, approved proposal.
+# Write tools. Only the apply service calls them, and only with a stored, approved proposal.
 public final readonly & WriteToolSpec[] WRITE_TOOL_SPECS = [
     {
         tool: gatewayToolName("reservation", "reissueConfirmation"),
@@ -67,33 +67,33 @@ public final readonly & string[] WRITE_TOOLS = from WriteToolSpec spec in WRITE_
 public isolated function approvalIdFor(string caseId, int proposalVersion) returns string =>
     string `${caseId}#${proposalVersion}`;
 
-# Checks the shape of an invocation before any work starts.
+# Checks an investigation job before any work starts.
 #
-# + request - The request body
-# + return - A reason the request is rejected, or `()` if it is acceptable
-public isolated function checkRequest(InvocationRequest request) returns string? {
-    if request.taskToken.trim() == "" {
-        return "taskToken is required";
-    }
-    if request.caseId.trim() == "" {
+# + job - The job from the jobs queue
+# + return - A reason the job cannot be processed, or `()` if it is acceptable
+public isolated function checkJob(InvestigationJob job) returns string? {
+    if job.caseId.trim() == "" {
         return "caseId is required";
     }
-    if request.action == "investigate" {
-        InvestigationJob? job = request?.job;
-        if job is () {
-            return "job is required for the investigate action";
-        }
-        if job.caseId != request.caseId {
-            return "job.caseId does not match caseId";
-        }
-        if job.inquiry.trim() == "" {
-            return "job.inquiry is empty";
-        }
-        return ();
+    if job.customerRef.trim() == "" {
+        return "customerRef is required";
     }
-    int? version = request?.proposalVersion;
-    if version is () || version < 1 {
-        return "proposalVersion (1 or higher) is required for the apply action";
+    if job.inquiry.trim() == "" {
+        return "inquiry is empty";
+    }
+    return ();
+}
+
+# Checks a decision before any work starts.
+#
+# + decision - The decision from the decisions queue
+# + return - A reason the decision cannot be processed, or `()` if it is acceptable
+public isolated function checkDecision(Decision decision) returns string? {
+    if decision.caseId.trim() == "" {
+        return "caseId is required";
+    }
+    if decision.proposalVersion < 1 {
+        return "proposalVersion must be 1 or higher";
     }
     return ();
 }
@@ -104,8 +104,8 @@ public isolated function checkRequest(InvocationRequest request) returns string?
 # leave `approvalId` to the apply step, and refer only to IDs that appear in the evidence.
 #
 # + findings - The agent's findings
-# + return - An `AgentError` with `INVALID_PROPOSAL` if a check fails
-public isolated function validateProposal(Findings findings) returns AgentError? {
+# + return - An `InvalidProposal` error if a check fails
+public isolated function validateProposal(Findings findings) returns InvalidProposal? {
     ProposedAction? action = findings?.proposedAction;
     if action is () {
         return ();
@@ -141,5 +141,8 @@ public isolated function validateProposal(Findings findings) returns AgentError?
     return ();
 }
 
-isolated function invalid(string reason) returns AgentError =>
-    error AgentError(string `Invalid proposal: ${reason}`, code = INVALID_PROPOSAL);
+# The agent's proposal failed a check. The investigation is retried.
+public type InvalidProposal distinct error;
+
+isolated function invalid(string reason) returns InvalidProposal =>
+    error InvalidProposal(string `Invalid proposal: ${reason}`);

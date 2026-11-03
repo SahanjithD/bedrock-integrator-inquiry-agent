@@ -1,5 +1,5 @@
-// The investigate action: gather evidence with read-only tools, consult the knowledge base,
-// and return findings, a proposed fix and a draft reply. It changes nothing.
+// Investigation: gather evidence with read-only tools, consult the knowledge base, and save
+// findings, a proposed fix and a draft reply on the case. It changes nothing else.
 
 import inquiry_agent.core;
 
@@ -22,13 +22,43 @@ ${m.chunk.content.toString()}`;
     return string:'join("\n---\n", ...passages);
 }
 
-# Runs one investigation and reports the result to Step Functions.
+# Handles one job from the jobs queue.
 #
-# + request - The invocation, already checked by `core:checkRequest`
-# + return - An error if the investigation fails; the caller reports it
-isolated function investigate(core:InvocationRequest & readonly request) returns error? {
-    core:InvestigationJob job = check request?.job.ensureType();
+# + job - The investigation job
+# + messageId - The SQS message ID, used to hold the claim on the case
+# + return - `()` when the message can be deleted, or an error to retry it later
+isolated function handleJob(core:InvestigationJob job, string messageId) returns error? {
+    InvestigationClaim claim = check claimForInvestigation(job.caseId, messageId);
+    if !claim.claimed {
+        // Another job message already handled this case, or the case moved on.
+        log:printInfo("Job skipped: case is not waiting for this job", caseId = job.caseId);
+        return;
+    }
 
+    core:Findings|error findings = investigate(job);
+    if findings is error {
+        if claim.attempts >= maxAttempts {
+            // Last attempt: the message goes to the DLQ after this receive.
+            check markInvestigationFailed(job.caseId, findings.message());
+        }
+        return findings;
+    }
+
+    // Delete the message only after the findings are saved.
+    boolean saved = check saveFindings(job.caseId, messageId, findings);
+    if !saved {
+        log:printWarn("Findings not saved: the claim moved to another attempt", caseId = job.caseId);
+        return;
+    }
+    log:printInfo("Investigation saved", caseId = job.caseId,
+            proposed = findings?.proposedAction?.tool ?: "none", confidence = findings.confidence);
+}
+
+# Runs the investigation agent for one job.
+#
+# + job - The investigation job
+# + return - Checked findings, or an error
+isolated function investigate(core:InvestigationJob job) returns core:Findings|error {
     // A fresh connection per job, limited to the read-only tools. The token comes from the
     // investigator app client, which is granted only the read scope.
     ai:McpToolKit gatewayTools = check new (gatewayUrl, core:READ_TOOLS,
@@ -36,7 +66,7 @@ isolated function investigate(core:InvocationRequest & readonly request) returns
         auth = {
             tokenUrl,
             clientId: investigatorClientId,
-            clientSecret: gatewaySecrets.investigatorClientSecret,
+            clientSecret: investigatorClientSecret,
             scopes: readScopes
         }
     );
@@ -52,8 +82,5 @@ isolated function investigate(core:InvocationRequest & readonly request) returns
 
     core:Findings findings = check agent.run(investigationPrompt(job));
     check core:validateProposal(findings);
-
-    log:printInfo("Investigation finished", caseId = request.caseId,
-            proposed = findings?.proposedAction?.tool ?: "none", confidence = findings.confidence);
-    check sendTaskSuccess(request.taskToken, {caseId: request.caseId, findings: findings.toJson()});
+    return findings;
 }

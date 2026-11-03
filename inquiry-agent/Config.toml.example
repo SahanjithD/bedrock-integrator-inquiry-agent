@@ -1,8 +1,18 @@
-# Copy to Config.toml for a local run. On AgentCore Runtime, scripts/06-agent-runtime.sh fills
-# in the values below and passes the result in the BAL_CONFIG_DATA environment variable.
-# No secrets here: the Cognito client secrets are read from Secrets Manager (clientSecretsArn).
+# Copy to Config.toml for a local run. On Amazon ECS, infra/cloudformation/agent-ecs.yaml passes
+# the same settings in the BAL_CONFIG_DATA environment variable.
+#
+# The Cognito client secrets are not settings. ECS injects them from AWS Secrets Manager as the
+# INVESTIGATOR_CLIENT_SECRET and APPLIER_CLIENT_SECRET environment variables. Set those two
+# variables yourself for a local run.
 
 awsRegion = "us-east-1"
+
+jobQueueUrl = "https://sqs.us-east-1.amazonaws.com/<ACCOUNT_ID>/inquiry-agent-jobs"
+decisionQueueUrl = "https://sqs.us-east-1.amazonaws.com/<ACCOUNT_ID>/inquiry-agent-decisions"
+jobVisibilitySeconds = 900
+decisionVisibilitySeconds = 300
+retryDelaySeconds = 60
+maxAttempts = 3
 
 # Claude Sonnet 5.5 through the US cross-Region inference profile.
 modelId = "us.anthropic.claude-sonnet-5-5"
@@ -24,4 +34,3 @@ investigatorClientId = "<INVESTIGATOR_CLIENT_ID>"
 applierClientId = "<APPLIER_CLIENT_ID>"
 readScopes = ["inquiry-gateway/read"]
 writeScopes = ["inquiry-gateway/write"]
-clientSecretsArn = "arn:aws:secretsmanager:us-east-1:<ACCOUNT_ID>:secret:inquiry-agent/gateway-clients-XXXXXX"

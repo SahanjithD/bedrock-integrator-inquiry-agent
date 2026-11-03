@@ -1,10 +1,7 @@
-// Types shared by the HTTP entry point, the investigate action and the apply action.
+// Types shared by the two SQS services and the case store.
 // They live in this submodule so they can be unit tested without AWS clients.
 
-# What the runtime is asked to do. Step Functions picks the action.
-public type Action "investigate"|"apply";
-
-# An investigation job, as the support console puts it on the job queue.
+# An investigation job, as the support console puts it on the jobs queue.
 public type InvestigationJob record {|
     # Case ID created by the support console, e.g. `CASE-20261103-1a2b3c`
     string caseId;
@@ -20,18 +17,15 @@ public type InvestigationJob record {|
     string submittedAt?;
 |};
 
-# The body of `POST /invocations`. The Lambda dispatcher forwards it unchanged.
-public type InvocationRequest record {|
-    # Which action to run
-    Action action;
-    # Step Functions task token used to report the result
-    string taskToken;
-    # The case this invocation belongs to
+# A representative's decision, as the console puts it on the decisions queue. It carries no
+# action: the apply step always reads the proposal stored on the case.
+public type Decision record {|
+    # The case the decision is for
     string caseId;
-    # The job to investigate. Required for `investigate`
-    InvestigationJob job?;
-    # The proposal version the representative approved. Required for `apply`
-    int proposalVersion?;
+    # Approve or reject the stored proposal
+    "APPROVED"|"REJECTED" decision;
+    # The proposal version the representative reviewed
+    int proposalVersion;
 |};
 
 # One fact the agent relied on.
@@ -46,13 +40,13 @@ public type Evidence record {|
 public type ProposedAction record {|
     # Gateway tool name of a write tool, e.g. `loyalty___creditPoints`
     string tool;
-    # Arguments for the tool, without `approvalId` (the apply action adds it)
+    # Arguments for the tool, without `approvalId` (the apply step adds it)
     map<json> arguments;
     # Why this change fixes the problem
     string rationale;
 |};
 
-# What the investigate action returns to Step Functions.
+# What an investigation produces.
 public type Findings record {|
     # Two or three sentences on what happened
     string summary;
@@ -72,7 +66,7 @@ public type Findings record {|
 
 # Case statuses. The DynamoDB item stands in for a ticket in the team's support system.
 public enum CaseStatus {
-    RECEIVED,
+    QUEUED,
     INVESTIGATING,
     PENDING_APPROVAL,
     NO_ACTION_PROPOSED,
@@ -82,20 +76,3 @@ public enum CaseStatus {
     NEEDS_REVIEW,
     FAILED
 }
-
-# Error codes reported to Step Functions with `SendTaskFailure`.
-public enum FailureCode {
-    # The proposal does not pass the checks in `validateProposal`
-    INVALID_PROPOSAL = "InvalidProposal",
-    # The case is not waiting for approval, or the approved version is stale
-    CASE_NOT_PENDING = "CaseNotPending",
-    # The outcome of a write is unknown; a person has to check it
-    CASE_NEEDS_REVIEW = "CaseNeedsReview",
-    # Anything else went wrong during the investigation
-    INVESTIGATION_FAILED = "InvestigationFailed",
-    # Anything else went wrong while applying
-    APPLY_FAILED = "ApplyFailed"
-}
-
-# An error that carries the code reported to Step Functions.
-public type AgentError distinct error<record {| FailureCode code; |}>;

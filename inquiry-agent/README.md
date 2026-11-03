@@ -1,50 +1,69 @@
 # Inquiry agent
 
-A WSO2 Integrator (Ballerina) service that runs on Amazon Bedrock AgentCore Runtime with the
-HTTP protocol. It is not a long-running worker and has no queue listener. Step Functions calls
-it once per job, through a small Lambda dispatcher, and waits on a task token.
+A WSO2 Integrator (Ballerina) service that runs on Amazon ECS (Fargate, ARM64). It has no
+HTTP endpoints. Two SQS listeners pull work from the support console's queues:
 
-| Endpoint | Behavior |
-| --- | --- |
-| `POST /invocations` | Checks the request, replies `{"status": "accepted"}` at once, and runs the action in the background. |
-| `GET /ping` | `Healthy` when idle, `HealthyBusy` while an action runs. `time_of_last_update` changes only when the status changes. |
+| Listener | Queue | Work |
+| --- | --- | --- |
+| Jobs | `<project>-jobs` | Investigate an inquiry and save findings for approval |
+| Decisions | `<project>-decisions` | Reject, or apply the approved change |
 
-## Actions
+## Investigate (jobs queue)
 
-**`investigate`**: a stateless `ai:Agent` (`memory = ()`) with:
+1. Claims the case with a conditional update: `QUEUED` → `INVESTIGATING`. The claim records the
+   SQS message ID, so a redelivery of the same message may resume, but a second job for the
+   same case is skipped.
+2. Runs a stateless `ai:Agent` (`memory = ()`) with:
+   - the Bedrock Converse API (`ballerinax/ai.aws.bedrock`) and a guardrail that masks
+     personal data,
+   - `searchKnowledge`, which retrieves runbooks, policies and resolved cases from the managed
+     knowledge base,
+   - the gateway's read-only tools only (`ai:McpToolKit` with `permittedTools`), using the
+     investigator Cognito client, which has the read scope only.
+3. Checks the proposal (`modules/core/tools.bal`): known write tool, required arguments, IDs
+   found in the evidence, no `approvalId` from the model.
+4. Saves findings, the proposed fix and the draft reply, increments `proposalVersion`, and sets
+   `PENDING_APPROVAL` (or `NO_ACTION_PROPOSED`).
+5. Deletes the SQS message only after the save succeeds.
 
-- the Bedrock Converse API (`ballerinax/ai.aws.bedrock`) with a guardrail that masks personal data,
-- the gateway's read-only tools only (`ai:McpToolKit` with `permittedTools`), using the
-  investigator app client, which is granted the read scope only,
-- `searchKnowledge`, which retrieves runbooks, policies and resolved cases from the managed
-  knowledge base.
+If an attempt fails, the message becomes visible again after `retryDelaySeconds`. After the
+third attempt the case is marked `FAILED`, and SQS moves the message to the jobs DLQ.
 
-It returns findings, at most one proposed change and a draft reply through `SendTaskSuccess`.
-Proposals are checked first (`modules/core/tools.bal`): the tool must be a known write tool,
-required arguments must be present, every ID must appear in the evidence, and `approvalId`
-must not be set by the model.
+## Apply (decisions queue)
 
-**`apply`**: runs after a representative approves. It reads the stored proposal from the case
-item; the decision message carries only `caseId`, `decision` and `proposalVersion`.
+The decision message carries only `caseId`, `decision` and `proposalVersion`.
 
-1. Conditional update `PENDING_APPROVAL` → `APPLYING` (the version must match).
-2. If the case is already `APPLYING`, an earlier attempt may have made the change: the tool is
-   not called again, the case becomes `NEEDS_REVIEW`, and the task fails with `CaseNeedsReview`.
-3. Calls the stored write tool through the gateway with `approvalId = <caseId>#<version>`.
-4. Conditional update `APPLYING` → `APPLIED`, storing the tool's response.
-5. Adds a resolved-case summary to the knowledge base's custom data source.
+- **Rejected:** `PENDING_APPROVAL` → `REJECTED`, if the version is current.
+- **Approved:**
+  1. Claim: `PENDING_APPROVAL` → `APPLYING`, if the version is current.
+  2. If the case is already `APPLYING` (a redelivered decision), an earlier attempt may have
+     made the change. The tool is not called again; the case becomes `NEEDS_REVIEW`.
+  3. Load the proposal from the case (never from the message) and call that one write tool
+     through the gateway, with the applier Cognito client (write scope) and
+     `approvalId = <caseId>#<proposalVersion>`.
+  4. `APPLYING` → `APPLIED`, storing the tool's response.
+  5. Add a resolved-case summary to the knowledge base's custom data source.
+
+A decision that no longer matches the case (stale version, already decided) is logged and
+deleted.
+
+## Visibility timeouts
+
+An investigation can take several minutes. The listener receives jobs with a 900-second
+visibility timeout (`jobVisibilitySeconds`), longer than the longest expected run, so another
+task does not pick up the same job meanwhile. The jobs queue uses the same default. Raise both
+together if your investigations take longer.
 
 ## Layout
 
 | File | Purpose |
 | --- | --- |
-| `service.bal` | HTTP listener, background execution, failure reporting |
+| `listeners.bal` | The two SQS listeners, message parsing, delete and retry |
 | `investigate.bal` | Investigation agent and the `searchKnowledge` tool |
-| `apply.bal` | Approved-change flow and knowledge base ingestion |
+| `apply.bal` | Reject and apply flows, knowledge base ingestion |
 | `cases.bal` | DynamoDB reads and conditional status updates |
-| `aws_json.bal` | SigV4-signed calls to Step Functions and Secrets Manager |
 | `clients.bal`, `config.bal`, `prompts.bal` | Clients, settings, prompts |
-| `modules/core` | Types, tool lists, request and proposal checks, ping status (unit tested) |
+| `modules/core` | Types, tool lists, job, decision and proposal checks (unit tested) |
 
 ## Build and test
 
@@ -56,6 +75,7 @@ bal test
 docker buildx build --platform linux/arm64 -t inquiry-agent .
 ```
 
-To run outside AgentCore, copy `Config.toml.example` to `Config.toml`, fill it in, and run
-`bal run` with AWS credentials that can reach the same resources. You can then call it like the
-dispatcher does, with a task token from a waiting Step Functions execution.
+To run locally, copy `Config.toml.example` to `Config.toml` and fill it in. Set
+`INVESTIGATOR_CLIENT_SECRET` and `APPLIER_CLIENT_SECRET`, then run `bal run` with AWS
+credentials that can reach the same resources. Stop the ECS service first, or set its
+desired count to 0, if you don't want it to compete for messages.

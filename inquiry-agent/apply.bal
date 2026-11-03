@@ -1,11 +1,11 @@
-// The apply action: run the one change a representative approved, then record the resolved
+// Decisions: reject, or apply the one change a representative approved and record the resolved
 // case in the knowledge base. The decision message carries only caseId, decision and
 // proposalVersion; the change itself is always read from the stored case.
 //
-// Order of steps:
+// Approve, step by step:
 //   1. Claim the case: PENDING_APPROVAL -> APPLYING, only if the approved version is current.
 //   2. If the claim fails because the case is already APPLYING, an earlier attempt may have
-//      made the change. Do not call the tool again: mark NEEDS_REVIEW and fail the task.
+//      made the change. Do not call the tool again: mark NEEDS_REVIEW.
 //   3. Call the stored write tool through the gateway with approvalId = caseId#version.
 //   4. APPLYING -> APPLIED, storing the tool's response.
 //   5. Ingest a resolved-case summary into the knowledge base's custom data source.
@@ -16,62 +16,62 @@ import ballerina/ai;
 import ballerina/log;
 import ballerina/mcp;
 
-# Applies an approved proposal and reports the result to Step Functions.
+# Handles one decision from the decisions queue.
 #
-# + request - The invocation, already checked by `core:checkRequest`
-# + return - An error if the change cannot be applied; the caller reports it
-isolated function applyApproved(core:InvocationRequest & readonly request) returns error? {
-    string caseId = request.caseId;
-    int version = check request?.proposalVersion.ensureType();
+# + decision - The decision
+# + return - `()` when the message can be deleted, or an error to retry it later
+isolated function handleDecision(core:Decision decision) returns error? {
+    string caseId = decision.caseId;
+    int version = decision.proposalVersion;
+
+    if decision.decision == "REJECTED" {
+        boolean rejected = check markRejected(caseId, version);
+        if rejected {
+            log:printInfo("Proposal rejected", caseId = caseId, proposalVersion = version);
+        } else {
+            log:printWarn("Rejection ignored: case is not waiting for this version", caseId = caseId);
+        }
+        return;
+    }
 
     boolean claimed = check claimForApply(caseId, version);
     if !claimed {
         StoredCase current = check loadCase(caseId);
         if current.status == core:APPLYING {
+            // A redelivered decision: the earlier attempt's outcome is unknown.
             _ = check markNeedsReview(caseId,
-                "A retry found the case already APPLYING; the earlier attempt's outcome is unknown.");
-            return error core:AgentError(
-                string `Case ${caseId} was already being applied; marked NEEDS_REVIEW`,
-                code = core:CASE_NEEDS_REVIEW);
+                "The decision was received again while the case was APPLYING; the earlier attempt's outcome is unknown.");
+            log:printWarn("Case marked NEEDS_REVIEW; the write tool was not called again", caseId = caseId);
+        } else {
+            log:printWarn("Approval ignored: case is not waiting for this version", caseId = caseId,
+                    status = current.status, storedVersion = current.proposalVersion, approvedVersion = version);
         }
-        return error core:AgentError(
-            string `Case ${caseId} is ${current.status} at version ${current.proposalVersion}, ` +
-            string `not PENDING_APPROVAL at version ${version}`,
-            code = core:CASE_NOT_PENDING);
+        return;
     }
 
-    // From here on the case is APPLYING. Any failure leaves the outcome unknown, so the case
-    // goes to NEEDS_REVIEW instead of being retried.
+    // From here on the case is APPLYING. A failed write leaves the outcome unknown, so the
+    // case goes to NEEDS_REVIEW and the message is not retried.
     json|error applyResult = callApprovedTool(caseId, version);
     if applyResult is error {
         _ = check markNeedsReview(caseId, applyResult.message());
-        return error core:AgentError(
-            string `Applying case ${caseId} failed: ${applyResult.message()}`, applyResult,
-            code = core:CASE_NEEDS_REVIEW);
+        log:printError("Applying the approved change failed; case marked NEEDS_REVIEW", applyResult, caseId = caseId);
+        return;
     }
 
+    // If this update fails, the message is retried, finds the case APPLYING, and marks it
+    // NEEDS_REVIEW without calling the tool again.
     boolean applied = check markApplied(caseId, applyResult);
     if !applied {
-        return error core:AgentError(
-            string `Case ${caseId} left APPLYING before it could be marked APPLIED`,
-            code = core:CASE_NEEDS_REVIEW);
+        log:printWarn("Case left APPLYING before it could be marked APPLIED", caseId = caseId);
+        return;
     }
-
-    boolean ingested = true;
-    error? ingestResult = ingestResolvedCase(caseId, version, applyResult);
-    if ingestResult is error {
-        // The change is applied; a missing knowledge base entry does not undo it.
-        ingested = false;
-        log:printWarn("Resolved case not added to the knowledge base", ingestResult, caseId = caseId);
-    }
-
     log:printInfo("Approved change applied", caseId = caseId, proposalVersion = version);
-    check sendTaskSuccess(request.taskToken, {
-        caseId,
-        status: core:APPLIED,
-        applyResult,
-        knowledgeBaseUpdated: ingested
-    });
+
+    error? ingested = ingestResolvedCase(caseId, version, applyResult);
+    if ingested is error {
+        // The change is applied; a missing knowledge base entry does not undo it.
+        log:printWarn("Resolved case not added to the knowledge base", ingested, caseId = caseId);
+    }
 }
 
 # Calls the stored write tool. Only tools on the write list are allowed.
@@ -97,7 +97,7 @@ isolated function callApprovedTool(string caseId, int version) returns json|erro
         auth = {
             tokenUrl,
             clientId: applierClientId,
-            clientSecret: gatewaySecrets.applierClientSecret,
+            clientSecret: applierClientSecret,
             scopes: writeScopes
         },
         timeout = 60
@@ -138,7 +138,10 @@ isolated function callApprovedTool(string caseId, int version) returns json|erro
 # + return - An error if ingestion fails
 isolated function ingestResolvedCase(string caseId, int version, json applyResult) returns error? {
     StoredCase stored = check loadCase(caseId);
-    core:Findings findings = stored.findings;
+    core:Findings? findings = stored.findings;
+    if findings is () {
+        return error("The case has no stored findings");
+    }
     core:ProposedAction? action = stored.proposedAction;
     string actionLine = action is core:ProposedAction ? string `${action.tool}: ${action.rationale}` : "none";
     string content = string `Resolved case ${caseId} (proposal version ${version})
