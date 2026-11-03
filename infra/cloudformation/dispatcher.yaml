@@ -1,0 +1,160 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Customer inquiry agent sample - Lambda dispatcher between the SQS queues and the inquiry agent
+  on AgentCore Runtime. Two functions share one code package: investigate (jobs queue) and apply
+  (decisions queue). Deploy with scripts/05-dispatcher.sh, which runs `aws cloudformation
+  package` to upload the code.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: inquiry-agent
+  FoundationStackName:
+    Type: String
+    Default: inquiry-agent-foundation
+  AgentRuntimeArn:
+    Type: String
+    Description: ARN of the inquiry agent runtime, from scripts/04-agent.sh.
+  AgentRuntimeQualifier:
+    Type: String
+    Default: DEFAULT
+    Description: Runtime endpoint name to invoke.
+  MaxConcurrentInvestigations:
+    Type: Number
+    Default: 5
+    MinValue: 2
+    Description: >-
+      Upper limit on investigations running at once (SQS event source maximum concurrency).
+      Keeps a burst of jobs within the model's quotas; extra jobs wait in the queue.
+
+Resources:
+  InvestigateLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${ProjectName}-investigate
+      RetentionInDays: 7
+
+  ApplyLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${ProjectName}-apply
+      RetentionInDays: 7
+
+  DispatcherRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: dispatcher
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ConsumeQueues
+                Effect: Allow
+                Action: [sqs:ReceiveMessage, sqs:DeleteMessage, sqs:GetQueueAttributes]
+                Resource:
+                  - Fn::ImportValue: !Sub ${FoundationStackName}-JobQueueArn
+                  - Fn::ImportValue: !Sub ${FoundationStackName}-DecisionQueueArn
+              - Sid: ReadAndUpdateCases
+                Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:UpdateItem]
+                Resource:
+                  Fn::ImportValue: !Sub ${FoundationStackName}-CaseTableArn
+              # TODO(verify): whether InvokeAgentRuntime also needs the endpoint ARN
+              # (<runtime ARN>/runtime-endpoint/DEFAULT) as a resource.
+              - Sid: InvokeAgent
+                Effect: Allow
+                Action: bedrock-agentcore:InvokeAgentRuntime
+                Resource: !Ref AgentRuntimeArn
+              - Sid: WriteLogs
+                Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource:
+                  - !Sub ${InvestigateLogGroup.Arn}
+                  - !Sub ${ApplyLogGroup.Arn}
+
+  InvestigateFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-investigate
+      Description: Claims a case, runs the agent's investigation, saves the findings.
+      Runtime: python3.12
+      Architectures: [arm64]
+      Handler: handler.investigate_handler
+      Code: ../dispatcher
+      # Lambda's maximum. The agent stops an investigation after 10 minutes, and this function
+      # stops waiting for it after AGENT_READ_TIMEOUT seconds.
+      Timeout: 900
+      MemorySize: 256
+      Role: !GetAtt DispatcherRole.Arn
+      LoggingConfig:
+        LogGroup: !Ref InvestigateLogGroup
+      Environment:
+        Variables:
+          CASE_TABLE:
+            Fn::ImportValue: !Sub ${FoundationStackName}-CaseTableName
+          AGENT_RUNTIME_ARN: !Ref AgentRuntimeArn
+          AGENT_RUNTIME_QUALIFIER: !Ref AgentRuntimeQualifier
+          AGENT_READ_TIMEOUT: "870"
+          MAX_ATTEMPTS: "3"
+
+  ApplyFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-apply
+      Description: Rejects, or applies the approved proposal stored on the case.
+      Runtime: python3.12
+      Architectures: [arm64]
+      Handler: handler.apply_handler
+      Code: ../dispatcher
+      Timeout: 900
+      MemorySize: 256
+      Role: !GetAtt DispatcherRole.Arn
+      LoggingConfig:
+        LogGroup: !Ref ApplyLogGroup
+      Environment:
+        Variables:
+          CASE_TABLE:
+            Fn::ImportValue: !Sub ${FoundationStackName}-CaseTableName
+          AGENT_RUNTIME_ARN: !Ref AgentRuntimeArn
+          AGENT_RUNTIME_QUALIFIER: !Ref AgentRuntimeQualifier
+          AGENT_READ_TIMEOUT: "870"
+          MAX_ATTEMPTS: "3"
+
+  # Batch size 1: each message is one case. Partial batch responses let a failed message be
+  # retried on its own. Queue visibility (5400 s) is 6x the function timeout.
+  InvestigateEventSourceMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn:
+        Fn::ImportValue: !Sub ${FoundationStackName}-JobQueueArn
+      FunctionName: !Ref InvestigateFunction
+      BatchSize: 1
+      FunctionResponseTypes: [ReportBatchItemFailures]
+      ScalingConfig:
+        MaximumConcurrency: !Ref MaxConcurrentInvestigations
+
+  ApplyEventSourceMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn:
+        Fn::ImportValue: !Sub ${FoundationStackName}-DecisionQueueArn
+      FunctionName: !Ref ApplyFunction
+      BatchSize: 1
+      FunctionResponseTypes: [ReportBatchItemFailures]
+
+Outputs:
+  InvestigateFunctionName:
+    Value: !Ref InvestigateFunction
+  ApplyFunctionName:
+    Value: !Ref ApplyFunction
+  InvestigateLogGroupName:
+    Value: !Ref InvestigateLogGroup
+  ApplyLogGroupName:
+    Value: !Ref ApplyLogGroup

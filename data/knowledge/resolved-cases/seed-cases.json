@@ -1,0 +1,18 @@
+[
+  {
+    "id": "CASE-20260611-seed01",
+    "text": "Resolved case CASE-20260611-seed01\nSummary: Guest added a second room night through the website; the reservation showed the new checkout date but the confirmation still showed the old one.\nRoot cause: The confirmation job for the new reservation version failed with a template timeout and was not retried.\nFix applied: reservation___reissueConfirmation for the reservation. A new confirmation matching the current version was sent.\nOutcome: Guest confirmed receipt the same day.\nSources: runbooks/booking-changes.md"
+  },
+  {
+    "id": "CASE-20260803-seed02",
+    "text": "Resolved case CASE-20260803-seed02\nSummary: Silver member reported no points four days after a two-night stay.\nRoot cause: Late checkout kept the folio open until after the nightly accrual batch; the accrual was marked FAILED and never retried.\nFix applied: loyalty___creditPoints for the stay, using qualifying spend x 5 base points (no Silver bonus).\nOutcome: Points credited; balance updated immediately.\nSources: runbooks/loyalty-points.md, policies/points-earning.md"
+  },
+  {
+    "id": "CASE-20260915-seed03",
+    "text": "Resolved case CASE-20260915-seed03\nSummary: Guest asked about a charge described as RESORT INCIDENTALS a day after checkout.\nRoot cause: The folio had no incidentals and a zero balance, but the incidentals reconciliation job captured the check-in hold instead of releasing it.\nFix applied: payment___refundCharge for the incidentals capture, full amount.\nOutcome: Refund issued to the original card; guest told to expect it within 5 to 10 business days.\nSources: runbooks/card-charges.md, policies/refunds.md"
+  },
+  {
+    "id": "CASE-20261002-seed04",
+    "text": "Resolved case CASE-20261002-seed04\nSummary: Guest did not recognize a charge with descriptor RESORT STAY followed by a reservation number.\nRoot cause: No error. The charge was the folio settlement at checkout and matched the folio total.\nFix applied: none. The representative explained the descriptor.\nOutcome: Guest satisfied; no change made.\nSources: runbooks/card-charges.md"
+  }
+]

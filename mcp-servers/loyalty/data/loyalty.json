@@ -1,0 +1,91 @@
+{
+  "members": [
+    {
+      "memberId": "M-77310",
+      "guestRef": "G-15562",
+      "name": "Riley Example",
+      "email": "riley.example@example.com",
+      "tier": "Gold",
+      "pointsBalance": 18420,
+      "joinedOn": "2022-03-14"
+    },
+    {
+      "memberId": "M-60218",
+      "guestRef": "G-10427",
+      "name": "Jordan Sample",
+      "email": "jordan.sample@example.com",
+      "tier": "Silver",
+      "pointsBalance": 6210,
+      "joinedOn": "2024-11-02"
+    }
+  ],
+  "stays": [
+    {
+      "stayId": "S-90551",
+      "memberId": "M-77310",
+      "reservationId": "R-51190",
+      "property": "City hotel",
+      "checkIn": "2026-10-30",
+      "checkOut": "2026-11-01",
+      "nights": 2,
+      "qualifyingSpend": 630.00,
+      "folioClosedAt": "2026-11-01T12:20:00Z",
+      "accrualStatus": "FAILED",
+      "accrualNote": "Nightly accrual batch ran at 2026-11-01T06:00:00Z while the folio was still open; the stay was skipped and not queued again."
+    },
+    {
+      "stayId": "S-88210",
+      "memberId": "M-77310",
+      "reservationId": "R-47781",
+      "property": "Coastal resort",
+      "checkIn": "2026-07-17",
+      "checkOut": "2026-07-20",
+      "nights": 3,
+      "qualifyingSpend": 840.00,
+      "folioClosedAt": "2026-07-20T10:05:00Z",
+      "accrualStatus": "POSTED",
+      "accrualNote": "Posted by the nightly accrual batch."
+    },
+    {
+      "stayId": "S-81007",
+      "memberId": "M-60218",
+      "reservationId": "R-44102",
+      "property": "Mountain lodge",
+      "checkIn": "2026-06-05",
+      "checkOut": "2026-06-07",
+      "nights": 2,
+      "qualifyingSpend": 410.00,
+      "folioClosedAt": "2026-06-07T11:02:00Z",
+      "accrualStatus": "POSTED",
+      "accrualNote": "Posted by the nightly accrual batch."
+    }
+  ],
+  "activity": [
+    {
+      "activityId": "PA-30411",
+      "memberId": "M-77310",
+      "postedAt": "2026-07-21T06:00:00Z",
+      "kind": "EARN",
+      "stayId": "S-88210",
+      "points": 4620,
+      "description": "Stay S-88210: 840.00 qualifying spend x 5 base points, plus 10% Gold bonus"
+    },
+    {
+      "activityId": "PA-31877",
+      "memberId": "M-77310",
+      "postedAt": "2026-09-03T14:12:00Z",
+      "kind": "REDEEM",
+      "points": -5000,
+      "description": "Redeemed for a room upgrade certificate"
+    },
+    {
+      "activityId": "PA-29952",
+      "memberId": "M-60218",
+      "postedAt": "2026-06-08T06:00:00Z",
+      "kind": "EARN",
+      "stayId": "S-81007",
+      "points": 2050,
+      "description": "Stay S-81007: 410.00 qualifying spend x 5 base points"
+    }
+  ]
+}

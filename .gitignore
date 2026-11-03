@@ -9,3 +9,11 @@ Config.toml
 .DS_Store
 .vscode/
 .idea/
+
+# Local deploy state and settings
+.deploy/
+scripts/env.sh
+
+# Python
+__pycache__/
+.pytest_cache/

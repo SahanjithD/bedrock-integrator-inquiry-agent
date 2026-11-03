@@ -1,0 +1,27 @@
+# Copy to Config.toml for a local run. On AgentCore Runtime, scripts/04-agent.sh fills in the
+# values below and passes the result in the BAL_CONFIG_DATA environment variable.
+# No secrets here: the Cognito client secrets are read from Secrets Manager (clientSecretsArn).
+
+awsRegion = "us-east-1"
+
+# Claude Sonnet 5.5 through the US cross-Region inference profile.
+modelId = "us.anthropic.claude-sonnet-5-5"
+maxTokens = 4096
+maxIterations = 12
+# Well under the 15-minute limit of a synchronous InvokeAgentRuntime request and of Lambda.
+investigationTimeoutSeconds = 600
+
+guardrailId = "<GUARDRAIL_ID>"
+guardrailVersion = "1"
+
+knowledgeBaseId = "<KNOWLEDGE_BASE_ID>"
+customDataSourceId = "<CUSTOM_DATA_SOURCE_ID>"
+knowledgeResults = 5
+
+gatewayUrl = "https://<GATEWAY_ID>.gateway.bedrock-agentcore.us-east-1.amazonaws.com/mcp"
+tokenUrl = "https://<COGNITO_DOMAIN>.auth.us-east-1.amazoncognito.com/oauth2/token"
+investigatorClientId = "<INVESTIGATOR_CLIENT_ID>"
+applierClientId = "<APPLIER_CLIENT_ID>"
+readScopes = ["inquiry-gateway/read"]
+writeScopes = ["inquiry-gateway/write"]
+clientSecretsArn = "arn:aws:secretsmanager:us-east-1:<ACCOUNT_ID>:secret:inquiry-agent/gateway-clients-XXXXXX"

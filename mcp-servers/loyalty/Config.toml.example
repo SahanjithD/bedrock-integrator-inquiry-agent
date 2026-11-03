@@ -1,0 +1,3 @@
+# Optional for a local run. Defaults work inside the container (working directory /app).
+dataFile = "data/loyalty.json"
+maxCreditPerStay = 20000

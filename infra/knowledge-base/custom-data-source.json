@@ -1,0 +1,6 @@
+{
+  "type": "MANAGED_KNOWLEDGE_BASE_CONNECTOR",
+  "managedKnowledgeBaseConnectorConfiguration": {
+    "connectorParameters": {"type": "CUSTOM", "version": "1"}
+  }
+}
