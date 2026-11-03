@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Step 3: Amazon Bedrock managed knowledge base with two data sources:
+# Step 2: Amazon Bedrock managed knowledge base with two data sources:
 #   - S3 data source: runbooks and policies under s3://<bucket>/knowledge/
-#   - custom data source: resolved cases, seeded here and added by the apply action
+#   - custom data source: resolved cases, seeded here and added by the agent's apply action
 #
 # The request bodies are in infra/knowledge-base/. The managed knowledge base and custom
 # source mirror what the ballerinax/ai.aws.bedrock module sends.

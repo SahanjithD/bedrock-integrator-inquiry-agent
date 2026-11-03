@@ -6,9 +6,9 @@ require aws python3
 
 try() { "$@" >/dev/null 2>&1 || warn "Skipped (already gone or failed): $*"; }
 
-log "Deleting stack ${WORKFLOWS_STACK}"
-try aws cloudformation delete-stack --stack-name "${WORKFLOWS_STACK}"
-try aws cloudformation wait stack-delete-complete --stack-name "${WORKFLOWS_STACK}"
+log "Deleting stack ${DISPATCHER_STACK} (Lambda dispatcher)"
+try aws cloudformation delete-stack --stack-name "${DISPATCHER_STACK}"
+try aws cloudformation wait stack-delete-complete --stack-name "${DISPATCHER_STACK}"
 
 if [[ -n "${AgentRuntimeId:-}" ]]; then
     log "Deleting the inquiry agent runtime"
