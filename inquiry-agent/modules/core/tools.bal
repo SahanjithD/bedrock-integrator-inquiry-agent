@@ -72,9 +72,6 @@ public isolated function approvalIdFor(string caseId, int proposalVersion) retur
 # + request - The request body
 # + return - A reason the request is rejected, or `()` if it is acceptable
 public isolated function checkRequest(InvocationRequest request) returns string? {
-    if request.taskToken.trim() == "" {
-        return "taskToken is required";
-    }
     if request.caseId.trim() == "" {
         return "caseId is required";
     }
@@ -94,6 +91,13 @@ public isolated function checkRequest(InvocationRequest request) returns string?
     int? version = request?.proposalVersion;
     if version is () || version < 1 {
         return "proposalVersion (1 or higher) is required for the apply action";
+    }
+    ProposedAction? action = request?.proposedAction;
+    if action is () {
+        return "proposedAction is required for the apply action";
+    }
+    if WRITE_TOOLS.indexOf(action.tool) is () {
+        return string `'${action.tool}' is not an allowed write tool`;
     }
     return ();
 }

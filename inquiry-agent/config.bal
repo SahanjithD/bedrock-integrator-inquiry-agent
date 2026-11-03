@@ -1,6 +1,6 @@
 // Settings. On AgentCore Runtime they arrive in the `BAL_CONFIG_DATA` environment variable,
-// which scripts/06-agent-runtime.sh renders from Config.toml.example. No secrets go here:
-// the Cognito client secrets are read from AWS Secrets Manager at startup.
+// which scripts/04-agent.sh renders. No secrets go here: the Cognito client secrets are read
+// from AWS Secrets Manager at startup.
 
 # AWS Region for every AWS call.
 configurable string awsRegion = "us-east-1";
@@ -15,6 +15,12 @@ configurable int maxTokens = 4096;
 # Upper limit on reasoning and tool-call cycles per investigation.
 configurable int maxIterations = 12;
 
+// AgentCore Runtime ends a synchronous InvokeAgentRuntime request after 15 minutes, and the
+// Lambda dispatcher that waits for it has the same 15-minute limit. The agent stops an
+// investigation well before that, so the dispatcher always gets an answer.
+# Seconds an investigation may run before the agent gives up and returns an error.
+configurable decimal investigationTimeoutSeconds = 600;
+
 # Guardrail ID or ARN. The guardrail masks personal data in model input and output.
 configurable string guardrailId = ?;
 # Guardrail version, e.g. `1`.
@@ -26,9 +32,6 @@ configurable string knowledgeBaseId = ?;
 configurable string customDataSourceId = ?;
 # Passages returned per knowledge base search.
 configurable int knowledgeResults = 5;
-
-# DynamoDB table that holds one item per case.
-configurable string caseTable = ?;
 
 # AgentCore Gateway MCP endpoint, e.g. `https://<gateway-id>.gateway.bedrock-agentcore.<region>.amazonaws.com/mcp`.
 configurable string gatewayUrl = ?;

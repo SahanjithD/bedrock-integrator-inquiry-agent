@@ -1,10 +1,10 @@
-// Types shared by the HTTP entry point, the investigate action and the apply action.
+// Types shared by the HTTP entry point and the two actions.
 // They live in this submodule so they can be unit tested without AWS clients.
 
-# What the runtime is asked to do. Step Functions picks the action.
+# What the runtime is asked to do. The Lambda dispatcher picks the action.
 public type Action "investigate"|"apply";
 
-# An investigation job, as the support console puts it on the job queue.
+# An investigation job, as the support console puts it on the jobs queue.
 public type InvestigationJob record {|
     # Case ID created by the support console, e.g. `CASE-20261103-1a2b3c`
     string caseId;
@@ -18,20 +18,6 @@ public type InvestigationJob record {|
     map<string> context = {};
     # When the console submitted the job (ISO 8601)
     string submittedAt?;
-|};
-
-# The body of `POST /invocations`. The Lambda dispatcher forwards it unchanged.
-public type InvocationRequest record {|
-    # Which action to run
-    Action action;
-    # Step Functions task token used to report the result
-    string taskToken;
-    # The case this invocation belongs to
-    string caseId;
-    # The job to investigate. Required for `investigate`
-    InvestigationJob job?;
-    # The proposal version the representative approved. Required for `apply`
-    int proposalVersion?;
 |};
 
 # One fact the agent relied on.
@@ -52,7 +38,7 @@ public type ProposedAction record {|
     string rationale;
 |};
 
-# What the investigate action returns to Step Functions.
+# What the investigate action returns.
 public type Findings record {|
     # Two or three sentences on what happened
     string summary;
@@ -70,32 +56,37 @@ public type Findings record {|
     string[] knowledgeSources = [];
 |};
 
-# Case statuses. The DynamoDB item stands in for a ticket in the team's support system.
-public enum CaseStatus {
-    RECEIVED,
-    INVESTIGATING,
-    PENDING_APPROVAL,
-    NO_ACTION_PROPOSED,
-    APPLYING,
-    APPLIED,
-    REJECTED,
-    NEEDS_REVIEW,
-    FAILED
-}
+# The body of `POST /invocations`, sent by the Lambda dispatcher.
+public type InvocationRequest record {|
+    # Which action to run
+    Action action;
+    # The case this invocation belongs to
+    string caseId;
+    # The job to investigate. Required for `investigate`
+    InvestigationJob job?;
+    # The approved proposal version. Required for `apply`
+    int proposalVersion?;
+    # The approved proposal, as stored on the case. Required for `apply`
+    ProposedAction proposedAction?;
+    # The findings stored on the case, used for the resolved-case record. Optional for `apply`
+    Findings findings?;
+|};
 
-# Error codes reported to Step Functions with `SendTaskFailure`.
-public enum FailureCode {
-    # The proposal does not pass the checks in `validateProposal`
+# Error codes returned in an `error` response.
+public enum ErrorCode {
+    # The request is malformed
+    INVALID_REQUEST = "InvalidRequest",
+    # The agent's proposal does not pass the checks in `validateProposal`
     INVALID_PROPOSAL = "InvalidProposal",
-    # The case is not waiting for approval, or the approved version is stale
-    CASE_NOT_PENDING = "CaseNotPending",
-    # The outcome of a write is unknown; a person has to check it
-    CASE_NEEDS_REVIEW = "CaseNeedsReview",
+    # The investigation did not finish within its time budget
+    INVESTIGATION_TIMEOUT = "InvestigationTimeout",
     # Anything else went wrong during the investigation
     INVESTIGATION_FAILED = "InvestigationFailed",
-    # Anything else went wrong while applying
+    # The write tool was not called (for example, the proposal names a tool that is not allowed)
+    APPLY_REJECTED = "ApplyRejected",
+    # The write tool was called and failed, or its outcome is unknown
     APPLY_FAILED = "ApplyFailed"
 }
 
-# An error that carries the code reported to Step Functions.
-public type AgentError distinct error<record {| FailureCode code; |}>;
+# An error that carries the code returned to the dispatcher.
+public type AgentError distinct error<record {| ErrorCode code; |}>;

@@ -79,12 +79,11 @@ function rejectsProposedApprovalId() {
 
 @test:Config
 function checksInvestigateRequest() {
-    InvocationRequest missingJob = {action: "investigate", taskToken: "token", caseId: "CASE-1"};
+    InvocationRequest missingJob = {action: "investigate", caseId: "CASE-1"};
     test:assertTrue(checkRequest(missingJob) is string);
 
     InvocationRequest ok = {
         action: "investigate",
-        taskToken: "token",
         caseId: "CASE-1",
         job: {caseId: "CASE-1", customerRef: "G-10427", inquiry: "My confirmation shows old dates."}
     };
@@ -93,24 +92,27 @@ function checksInvestigateRequest() {
 
 @test:Config
 function checksApplyRequest() {
-    InvocationRequest noVersion = {action: "apply", taskToken: "token", caseId: "CASE-1"};
-    test:assertTrue(checkRequest(noVersion) is string);
+    ProposedAction credit = {
+        tool: "loyalty___creditPoints",
+        arguments: {memberId: "M-77310", stayId: "S-90551", points: 3465},
+        rationale: "Missing accrual."
+    };
+    InvocationRequest noProposal = {action: "apply", caseId: "CASE-1", proposalVersion: 1};
+    test:assertTrue(checkRequest(noProposal) is string);
 
-    InvocationRequest ok = {action: "apply", taskToken: "token", caseId: "CASE-1", proposalVersion: 1};
+    InvocationRequest readTool = {
+        action: "apply",
+        caseId: "CASE-1",
+        proposalVersion: 1,
+        proposedAction: {tool: "loyalty___listStays", arguments: {memberId: "M-77310"}, rationale: "Read only."}
+    };
+    test:assertTrue(checkRequest(readTool) is string);
+
+    InvocationRequest ok = {action: "apply", caseId: "CASE-1", proposalVersion: 1, proposedAction: credit};
     test:assertEquals(checkRequest(ok), ());
 }
 
 @test:Config
 function buildsApprovalId() {
     test:assertEquals(approvalIdFor("CASE-1", 2), "CASE-1#2");
-}
-
-@test:Config
-function reportsBusyWhileWorkRuns() {
-    jobStarted();
-    test:assertEquals(currentStatus().status, "HealthyBusy");
-    int changedAt = currentStatus().time_of_last_update;
-    jobFinished();
-    test:assertEquals(currentStatus().status, "Healthy");
-    test:assertTrue(currentStatus().time_of_last_update >= changedAt);
 }

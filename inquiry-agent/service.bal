@@ -1,8 +1,11 @@
 // HTTP entry point for AgentCore Runtime (HTTP protocol, port 8080).
 //
-// POST /invocations answers "accepted" at once and runs the action in the background.
-// GET /ping reports HealthyBusy while background work runs, so the runtime keeps the
-// session alive. The result goes back to Step Functions with the task token.
+// POST /invocations does the work synchronously and returns the result in the response. The
+// Lambda dispatcher waits for it. AgentCore Runtime ends a synchronous request after
+// 15 minutes, so investigations stop at `investigationTimeoutSeconds` (10 minutes by default).
+//
+// Every handled request gets HTTP 200 with `status` set to "ok" or "error", so the dispatcher
+// can always read the outcome.
 
 import inquiry_agent.core;
 
@@ -13,42 +16,25 @@ listener http:Listener runtimeListener = new (8080);
 
 service / on runtimeListener {
 
-    isolated resource function get ping() returns core:PingResponse => core:currentStatus();
+    resource function get ping() returns json => {status: "Healthy"};
 
-    isolated resource function post invocations(@http:Payload core:InvocationRequest request)
-            returns json|http:BadRequest {
+    isolated resource function post invocations(@http:Payload core:InvocationRequest request) returns json {
         string? problem = core:checkRequest(request);
         if problem is string {
             log:printWarn("Invocation rejected", reason = problem, caseId = request.caseId);
-            return <http:BadRequest>{body: {status: "rejected", reason: problem}};
+            return errorResponse(request.caseId, core:INVALID_REQUEST, problem);
         }
-        core:InvocationRequest & readonly accepted = request.cloneReadOnly();
-        core:jobStarted();
-        _ = start runInBackground(accepted);
-        return {status: "accepted", caseId: request.caseId, action: request.action};
+        core:InvocationRequest & readonly checked = request.cloneReadOnly();
+        json|error result = checked.action == "investigate" ? investigate(checked) : applyApproved(checked);
+        if result is error {
+            core:ErrorCode code = result is core:AgentError ? result.detail().code
+                : checked.action == "investigate" ? core:INVESTIGATION_FAILED : core:APPLY_FAILED;
+            log:printError("Action failed", result, caseId = checked.caseId, action = checked.action, code = code);
+            return errorResponse(checked.caseId, code, result.message());
+        }
+        return result;
     }
 }
 
-# Runs one action, reports any failure to Step Functions, and clears the busy status.
-#
-# + request - The accepted invocation
-isolated function runInBackground(core:InvocationRequest & readonly request) {
-    error? result = request.action == "investigate" ? investigate(request) : applyApproved(request);
-    if result is error {
-        string code = failureCode(request.action, result);
-        log:printError("Action failed", result, caseId = request.caseId, action = request.action, code = code);
-        error? reported = sendTaskFailure(request.taskToken, code, result.message());
-        if reported is error {
-            // Step Functions falls back to the task timeout and its retry policy.
-            log:printError("Could not report the failure to Step Functions", reported, caseId = request.caseId);
-        }
-    }
-    core:jobFinished();
-}
-
-isolated function failureCode(core:Action action, error err) returns string {
-    if err is core:AgentError {
-        return err.detail().code;
-    }
-    return action == "investigate" ? core:INVESTIGATION_FAILED : core:APPLY_FAILED;
-}
+isolated function errorResponse(string caseId, core:ErrorCode code, string message) returns json =>
+    {status: "error", caseId, code, message};
