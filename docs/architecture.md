@@ -1,92 +1,104 @@
-# Architecture
+# Architecture (SQS → Lambda → AgentCore Runtime)
 
-![Architecture](architecture.png)
-
-The diagram is a placeholder, to be replaced by the final diagram for the article.
+![Architecture: SQS, Lambda dispatcher and the inquiry agent on AgentCore Runtime](figure-2-architecture-lambda.png)
 
 ## Components
 
 | Component | Service | Role |
 | --- | --- | --- |
-| Support console | `scripts/console.py` | Creates the case, sends the job, shows findings, sends the decision |
+| Support portal (stand-in) | `scripts/console.py` | Creates the case, sends the job, shows findings, sends the decision |
 | Case item | Amazon DynamoDB | One item per case. Stands in for the ticket in the team's support system |
-| Job queue, decision queue | Amazon SQS (standard, each with a DLQ) | Buffer work from the console |
-| Pipes | Amazon EventBridge Pipes | Start one workflow execution per message (batch size 1) |
-| Investigate and apply workflows | AWS Step Functions (Standard) | Status changes, timeouts, retries, failure handling |
-| Dispatcher | AWS Lambda | Starts one agent invocation and returns (see "Why a dispatcher") |
-| Inquiry agent | WSO2 Integrator on Amazon Bedrock AgentCore Runtime | Investigates (read-only) or applies one approved change |
+| Jobs queue, decisions queue | Amazon SQS (standard, each with a DLQ) | Carry work from the portal |
+| Dispatcher | AWS Lambda (Python 3.12), two functions | Own the case status; call the agent and wait for its answer |
+| Inquiry agent | WSO2 Integrator on Amazon Bedrock AgentCore Runtime | Investigates (read-only) or applies one approved change; holds no state |
 | Model and guardrail | Amazon Bedrock (Converse API) | Reasoning; personal data masked in output |
-| Knowledge base | Amazon Bedrock managed knowledge base | Runbooks and policies (S3 source), resolved cases (custom source) |
+| Knowledge base | Amazon Bedrock managed knowledge base | Runbooks and policies (S3 data source), resolved cases (custom data source) |
 | Tool endpoint | Amazon Bedrock AgentCore Gateway | One MCP endpoint for all tools, Cognito client-credentials inbound |
 | Internal systems | WSO2 Integrator MCP servers on AgentCore Runtime | Reservation, loyalty and payment tools over synthetic data |
-| Failure queue | Amazon SQS | Jobs and decisions that failed after retries |
 
-## Investigation flow
+## Time limits
 
-1. The console writes the case item (`RECEIVED`) and sends the job to the job queue.
-2. The pipe starts the `investigate` state machine with the message.
-3. The state machine sets `INVESTIGATING` (only if the case is `RECEIVED`, so a duplicate
-   delivery does nothing) and calls the dispatcher with `.waitForTaskToken`.
-4. The dispatcher calls `InvokeAgentRuntime` with `{action: "investigate", taskToken, caseId, job}`
-   in a new runtime session and returns once the agent answers `accepted`.
-5. The agent runs in the background while `/ping` reports `HealthyBusy`. It uses only the
-   gateway's read-only tools and the knowledge base, then checks its proposal.
-6. The agent calls `SendTaskSuccess` with the findings. The state machine stores them on the
-   case, increments `proposalVersion` and sets `PENDING_APPROVAL` (or `NO_ACTION_PROPOSED`).
-7. On a timeout or error the task is retried twice with backoff. After that the case becomes
-   `FAILED` and the job goes to the failure queue.
+The dispatcher calls the agent synchronously and waits for the answer, so both 15-minute
+limits apply:
 
-## Approval flow
+| Limit | Value |
+| --- | --- |
+| AgentCore Runtime synchronous request | 15 minutes (fixed) |
+| Lambda function timeout | 900 s (Lambda's maximum) |
+| Dispatcher waits for the agent (`AGENT_READ_TIMEOUT`) | 870 s |
+| Agent investigation budget (`investigationTimeoutSeconds`) | 600 s |
+| Queue visibility timeout | 5400 s (6x the function timeout) |
 
-1. The representative reviews the case and approves or rejects. The console sends
-   `{caseId, decision, proposalVersion}` to the decision queue. Nothing else travels.
-2. The pipe starts the `apply` state machine.
-3. **Rejected:** the state machine sets `REJECTED` if the case is still `PENDING_APPROVAL` at
-   that version.
-4. **Approved:** the dispatcher starts the agent with `{action: "apply", taskToken, caseId, proposalVersion}`.
-   The agent:
-   1. sets `APPLYING` with a conditional update (status `PENDING_APPROVAL` and matching version),
-   2. reads the stored proposal and calls that one write tool through the gateway with
-      `approvalId = <caseId>#<proposalVersion>`,
-   3. sets `APPLIED` (only if still `APPLYING`) and stores the tool's response,
-   4. adds a resolved-case summary to the knowledge base's custom data source,
-   5. calls `SendTaskSuccess`.
-5. If a retry finds the case already `APPLYING`, an earlier attempt may have made the change.
-   The agent does not call the tool again; it sets `NEEDS_REVIEW` and fails the task with
-   `CaseNeedsReview`. The state machine leaves the status alone and sends the decision to the
-   failure queue.
-6. If the task fails before the case was claimed, the state machine sets `FAILED`. If it fails
-   while the case is `APPLYING` (for example, a timeout), it sets `NEEDS_REVIEW`.
+An investigation that needs longer than 10 minutes does not fit this design; see the ECS
+variant on the main branch.
+
+## Investigation flow (jobs queue)
+
+1. The portal writes the case item (`QUEUED`) and sends the job to the jobs queue.
+2. The jobs queue's event source mapping invokes the `investigate` function with one message.
+3. The function claims the case with a conditional update: `QUEUED` → `INVESTIGATING`. The claim
+   records the SQS message ID and counts the attempt. A redelivery of the same message may claim
+   again; a second job for the same case is skipped.
+4. It calls `InvokeAgentRuntime` with `{action: "investigate", caseId, job}`. The runtime
+   session ID is the case ID plus the attempt (at least 33 characters).
+5. The agent calls the model through the guardrail, searches the knowledge base, and uses only
+   the gateway's read-only tools. It checks its proposal and returns
+   `{status: "ok", findings}`.
+6. The function saves the findings, the proposed fix and the draft reply, increments
+   `proposalVersion`, and sets `PENDING_APPROVAL` (or `NO_ACTION_PROPOSED`).
+7. On any error the function reports the message as failed, and SQS retries it. After the
+   third attempt the case is marked `FAILED` and SQS moves the message to the jobs DLQ.
+
+## Approval flow (decisions queue)
+
+1. The representative reviews the case and approves or rejects. The portal sends
+   `{caseId, decision, proposalVersion}` to the decisions queue. Nothing else travels.
+2. The decisions queue's event source mapping invokes the `apply` function.
+3. **Rejected:** `PENDING_APPROVAL` → `REJECTED`, if the version is current.
+4. **Approved:**
+   1. `PENDING_APPROVAL` → `APPLYING` with a conditional update (status and version must match).
+   2. Load the proposal from the case (never from the message).
+   3. Call `InvokeAgentRuntime` with `{action: "apply", caseId, proposalVersion, proposedAction, findings}`.
+   4. The agent calls exactly that one write tool through the gateway with
+      `approvalId = <caseId>#<proposalVersion>`, adds the resolved case to the knowledge base,
+      and returns the tool's response.
+   5. `APPLYING` → `APPLIED`, storing the response.
+5. If a redelivered decision finds the case already `APPLYING`, an earlier attempt may have made
+   the change. The function does not call the agent again; it sets `NEEDS_REVIEW`.
+6. If the agent call fails or returns an error after the claim, the outcome is unknown, so the
+   case goes to `NEEDS_REVIEW` and the decision is not retried.
+7. A decision that no longer matches the case (stale version, already decided) is logged and
+   dropped.
 
 ## Case statuses
 
 ```
-RECEIVED -> INVESTIGATING -> PENDING_APPROVAL -> APPLYING -> APPLIED
-                         \-> NO_ACTION_PROPOSED   |   \-> NEEDS_REVIEW
-                         \-> FAILED               \-> REJECTED / FAILED
+QUEUED -> INVESTIGATING -> PENDING_APPROVAL -> APPLYING -> APPLIED
+                       \-> NO_ACTION_PROPOSED  |        \-> NEEDS_REVIEW
+                       \-> FAILED              \-> REJECTED
 ```
 
 ## Case item
 
 | Attribute | Type | Written by |
 | --- | --- | --- |
-| `caseId` | S (key) | console |
-| `status` | S | console, state machines, agent (apply) |
-| `job` | S (JSON) | console |
-| `findings` | S (JSON) | investigate state machine |
-| `proposedAction` | S (JSON, or `null`) | investigate state machine |
-| `draftReply` | S | investigate state machine |
-| `proposalVersion` | N | investigate state machine (incremented per investigation) |
-| `applyResult` | S (JSON) | agent (apply) |
-| `failureReason` | S | state machines, agent |
-| `createdAt`, `updatedAt` | S | all writers |
+| `caseId` | S (key) | portal |
+| `status` | S | portal, dispatcher |
+| `job` | S (JSON) | portal |
+| `jobMessageId`, `attempts` | S, N | dispatcher (investigation claim) |
+| `findings`, `proposedAction` | S (JSON) | dispatcher, from the agent's answer |
+| `draftReply` | S | dispatcher, from the agent's answer |
+| `proposalVersion` | N | dispatcher (incremented per saved investigation) |
+| `applyResult` | S (JSON) | dispatcher, from the agent's answer |
+| `failureReason` | S | dispatcher |
+| `createdAt`, `updatedAt` | S | portal, dispatcher |
 
-In production this record would be the ticket in the team's support system, and the console
-would be that system's user interface.
+In production this record would be the ticket in the team's support system, and the portal
+would be that system's user interface. The agent never reads or writes it.
 
 ## Messages
 
-Job (job queue and `job` on the case):
+Job (jobs queue, and `job` on the case):
 
 ```json
 {
@@ -99,22 +111,17 @@ Job (job queue and `job` on the case):
 }
 ```
 
-Decision (decision queue):
+Decision (decisions queue):
 
 ```json
 {"caseId": "CASE-20261103-1a2b3c", "decision": "APPROVED", "proposalVersion": 1}
 ```
 
-Invocation (dispatcher to agent, `POST /invocations`):
-
-```json
-{"action": "apply", "taskToken": "<token>", "caseId": "CASE-20261103-1a2b3c", "proposalVersion": 1}
-```
-
-Findings (agent to Step Functions):
+Agent answer to `investigate`:
 
 ```json
 {
+  "status": "ok",
   "caseId": "CASE-20261103-1a2b3c",
   "findings": {
     "summary": "...",
@@ -132,26 +139,28 @@ Findings (agent to Step Functions):
 }
 ```
 
-## Why a dispatcher
+Agent error answer (either action):
 
-The Step Functions integration for Amazon Bedrock AgentCore supports only the Request
-Response pattern, not Wait for a Callback with a task token. The Lambda dispatcher is invoked
-with `.waitForTaskToken`, starts the agent, and returns. The agent then reports with the token.
-If the integration gains callback support, the dispatcher can be replaced by a direct task.
+```json
+{"status": "error", "caseId": "CASE-20261103-1a2b3c", "code": "InvestigationTimeout", "message": "..."}
+```
 
-## Why the agent is not a queue listener
+## Scaling
 
-Each job is one short-lived invocation. AgentCore Runtime starts a fresh session per
-invocation and stops it when the agent goes idle, so nothing runs between jobs. The agent
-keeps no memory between invocations (`memory = ()`); durable state lives in DynamoDB, Step
-Functions and the knowledge base.
+- Each job is one Lambda invocation that waits for one agent session. AgentCore Runtime starts a
+  separate session for each invocation.
+- The investigate event source mapping caps concurrent investigations at
+  `MaxConcurrentInvestigations` (default 5). Extra jobs wait in the queue, so a burst does not
+  exceed the model's quotas.
+- Lambda is billed for the whole time it waits for the agent.
 
 ## Read-only during investigation
 
-1. The investigate action loads only the read tools (`ai:McpToolKit` with `permittedTools`).
+1. The investigation loads only the read tools (`ai:McpToolKit` with `permittedTools`).
 2. It gets gateway tokens from the investigator Cognito client, which has only the read scope.
-3. A proposal is only data until approved. The apply action calls the stored proposal, only if
-   it names a tool on the write list, with tokens from the applier client (write scope).
+3. A proposal is only data until approved. The apply action receives the stored proposal from
+   the dispatcher and calls it only if it names a tool on the write list. It uses tokens from
+   the applier client (write scope).
 4. Write tools require an `approvalId` and are idempotent per `approvalId`.
 
 Gateway-side enforcement of scopes per tool is not configured in this sample (see Known limits

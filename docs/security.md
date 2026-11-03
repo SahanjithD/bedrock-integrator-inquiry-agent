@@ -15,11 +15,12 @@ This sample shows a pattern. It is not production ready. Review these points bef
 
 ## Identity and access
 
-- Each runtime and workflow has its own IAM role with only the actions it uses. The inquiry
-  agent's role can read and update the case table, report to the two state machines, read one
-  secret, call the model and use the knowledge base.
-- The inquiry agent runtime uses IAM (SigV4) inbound auth. Only the dispatcher's role may call
-  `InvokeAgentRuntime` on it.
+- Each component has its own IAM role with only the actions it uses. The inquiry agent's role
+  can read one secret, call the model with the guardrail, and use the knowledge base. It has no
+  access to the case table or the queues.
+- The Lambda dispatcher's role can consume the two queues, read and update the case table, and
+  call `InvokeAgentRuntime` on the agent runtime only.
+- The inquiry agent runtime uses IAM (SigV4) inbound auth. Only the dispatcher's role may call it.
 - The gateway accepts Cognito client-credentials tokens from two clients: the investigator
   (read scope) and the applier (write scope). The MCP runtimes accept tokens only from the
   gateway's outbound client.
@@ -30,7 +31,8 @@ This sample shows a pattern. It is not production ready. Review these points bef
 
 - The model never calls a write tool. It can only propose one, and the proposal is checked
   (known write tool, required arguments, IDs from the evidence, no self-supplied approval ID).
-- The decision message carries no action. The apply step reads the stored proposal.
+- The decision message carries no action. The dispatcher reads the stored proposal from the
+  case and sends it to the agent.
 - Conditional updates make sure a proposal is applied at most once per approved version. A
   retry with an unknown outcome stops at `NEEDS_REVIEW` for a person to check.
 - Write tools are idempotent per `approvalId`.
