@@ -1,0 +1,335 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Customer inquiry agent sample - the inquiry agent on Amazon ECS (Fargate, ARM64): ECR
+  repository, a small VPC with public subnets, cluster, task definition, service, roles and
+  log group. Deployed by scripts/04-agent.sh.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: inquiry-agent
+  FoundationStackName:
+    Type: String
+    Default: inquiry-agent-foundation
+  ImageTag:
+    Type: String
+    Default: latest
+    Description: Tag of the inquiry agent image in this stack's ECR repository.
+  DesiredCount:
+    Type: Number
+    Default: 2
+    MinValue: 0
+    Description: Number of agent tasks. Each task runs one investigation and one decision at a time.
+  ModelId:
+    Type: String
+    Default: us.anthropic.claude-sonnet-5-5
+    Description: Bedrock model or inference profile ID (Claude Sonnet 5.5, US cross-Region profile).
+  GuardrailId:
+    Type: String
+  GuardrailArn:
+    Type: String
+  GuardrailVersion:
+    Type: String
+  KnowledgeBaseId:
+    Type: String
+  CustomDataSourceId:
+    Type: String
+  GatewayUrl:
+    Type: String
+    Description: AgentCore Gateway MCP endpoint, from scripts/03-mcp-servers.sh.
+  TaskCpu:
+    Type: Number
+    Default: 1024
+  TaskMemory:
+    Type: Number
+    Default: 2048
+
+Resources:
+  # ---------------------------------------------------------------------------
+  # Networking: kept simple for a sample. Public subnets with public IPs, and a
+  # security group that allows outbound traffic only (the agent has no inbound ports).
+  # ---------------------------------------------------------------------------
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.20.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-agent
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.20.0.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-agent-public-a
+
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.20.1.0/24
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-agent-public-b
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+
+  DefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetARouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetA
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnetBRouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetB
+      RouteTableId: !Ref PublicRouteTable
+
+  AgentSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Inquiry agent tasks - outbound only
+      VpcId: !Ref Vpc
+      SecurityGroupEgress:
+        - Description: HTTPS to AWS services, the gateway and Cognito
+          IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+
+  # ---------------------------------------------------------------------------
+  # Image, cluster and logs
+  # ---------------------------------------------------------------------------
+  AgentRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub ${ProjectName}/inquiry-agent
+      EmptyOnDelete: true
+      ImageScanningConfiguration:
+        ScanOnPush: true
+
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub ${ProjectName}
+
+  AgentLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /ecs/${ProjectName}/inquiry-agent
+      RetentionInDays: 30
+
+  # ---------------------------------------------------------------------------
+  # Roles
+  # ---------------------------------------------------------------------------
+  # Used by ECS to pull the image, write logs and inject the Cognito client secrets.
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: inject-gateway-client-secrets
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource:
+                  Fn::ImportValue: !Sub ${FoundationStackName}-GatewayClientSecretsArn
+
+  # Used by the agent itself. Least privilege for what the agent calls.
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              ArnLike:
+                aws:SourceArn: !Sub arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:*
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+      Policies:
+        - PolicyName: inquiry-agent
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: InvokeModel
+                Effect: Allow
+                Action: bedrock:InvokeModel
+                Resource:
+                  # A cross-Region inference profile may route to the model in any US Region.
+                  - arn:aws:bedrock:*::foundation-model/anthropic.*
+                  - !Sub arn:aws:bedrock:*:${AWS::AccountId}:inference-profile/us.anthropic.*
+              - Sid: ApplyGuardrail
+                Effect: Allow
+                Action: bedrock:ApplyGuardrail
+                Resource: !Ref GuardrailArn
+              - Sid: UseKnowledgeBase
+                Effect: Allow
+                Action:
+                  - bedrock:Retrieve
+                  - bedrock:IngestKnowledgeBaseDocuments
+                  # The ballerinax/ai.aws.bedrock client checks the knowledge base and data
+                  # source at startup, and polls document status after ingesting.
+                  - bedrock:GetKnowledgeBase
+                  - bedrock:GetDataSource
+                  - bedrock:GetKnowledgeBaseDocuments
+                Resource: !Sub arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/${KnowledgeBaseId}
+              - Sid: ConsumeQueues
+                Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:ChangeMessageVisibility
+                  - sqs:GetQueueAttributes
+                Resource:
+                  - Fn::ImportValue: !Sub ${FoundationStackName}-JobQueueArn
+                  - Fn::ImportValue: !Sub ${FoundationStackName}-DecisionQueueArn
+              - Sid: ReadAndUpdateCases
+                Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:UpdateItem]
+                Resource:
+                  Fn::ImportValue: !Sub ${FoundationStackName}-CaseTableArn
+
+  # ---------------------------------------------------------------------------
+  # Task definition and service
+  # ---------------------------------------------------------------------------
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub ${ProjectName}-inquiry-agent
+      Cpu: !Ref TaskCpu
+      Memory: !Ref TaskMemory
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      RuntimePlatform:
+        CpuArchitecture: ARM64
+        OperatingSystemFamily: LINUX
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: inquiry-agent
+          Image: !Sub ${AgentRepository.RepositoryUri}:${ImageTag}
+          Essential: true
+          # Time to finish the current message after SIGTERM. An unfinished investigation is
+          # picked up again after the visibility timeout.
+          StopTimeout: 120
+          Environment:
+            - Name: BAL_CONFIG_DATA
+              Value: !Sub
+                - |
+                  awsRegion = "${AWS::Region}"
+                  jobQueueUrl = "${JobQueueUrl}"
+                  decisionQueueUrl = "${DecisionQueueUrl}"
+                  modelId = "${ModelId}"
+                  guardrailId = "${GuardrailId}"
+                  guardrailVersion = "${GuardrailVersion}"
+                  knowledgeBaseId = "${KnowledgeBaseId}"
+                  customDataSourceId = "${CustomDataSourceId}"
+                  caseTable = "${CaseTableName}"
+                  gatewayUrl = "${GatewayUrl}"
+                  tokenUrl = "${CognitoTokenUrl}"
+                  investigatorClientId = "${InvestigatorClientId}"
+                  applierClientId = "${ApplierClientId}"
+                - JobQueueUrl:
+                    Fn::ImportValue: !Sub ${FoundationStackName}-JobQueueUrl
+                  DecisionQueueUrl:
+                    Fn::ImportValue: !Sub ${FoundationStackName}-DecisionQueueUrl
+                  CaseTableName:
+                    Fn::ImportValue: !Sub ${FoundationStackName}-CaseTableName
+                  CognitoTokenUrl:
+                    Fn::ImportValue: !Sub ${FoundationStackName}-CognitoTokenUrl
+                  InvestigatorClientId:
+                    Fn::ImportValue: !Sub ${FoundationStackName}-InvestigatorClientId
+                  ApplierClientId:
+                    Fn::ImportValue: !Sub ${FoundationStackName}-ApplierClientId
+          Secrets:
+            - Name: INVESTIGATOR_CLIENT_SECRET
+              ValueFrom: !Sub
+                - "${SecretArn}:investigatorClientSecret::"
+                - SecretArn:
+                    Fn::ImportValue: !Sub ${FoundationStackName}-GatewayClientSecretsArn
+            - Name: APPLIER_CLIENT_SECRET
+              ValueFrom: !Sub
+                - "${SecretArn}:applierClientSecret::"
+                - SecretArn:
+                    Fn::ImportValue: !Sub ${FoundationStackName}-GatewayClientSecretsArn
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref AgentLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: agent
+
+  Service:
+    Type: AWS::ECS::Service
+    DependsOn: DefaultRoute
+    Properties:
+      ServiceName: inquiry-agent
+      Cluster: !Ref Cluster
+      TaskDefinition: !Ref TaskDefinition
+      DesiredCount: !Ref DesiredCount
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets: [!Ref PublicSubnetA, !Ref PublicSubnetB]
+          SecurityGroups: [!Ref AgentSecurityGroup]
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 100
+        MaximumPercent: 200
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+      PropagateTags: SERVICE
+
+Outputs:
+  AgentRepositoryUri:
+    Value: !GetAtt AgentRepository.RepositoryUri
+  ClusterName:
+    Value: !Ref Cluster
+  ServiceName:
+    Value: !GetAtt Service.Name
+  AgentLogGroupName:
+    Value: !Ref AgentLogGroup

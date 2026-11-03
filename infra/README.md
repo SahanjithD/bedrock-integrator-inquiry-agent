@@ -2,16 +2,35 @@
 
 | Path | Deployed by | Contents |
 | --- | --- | --- |
-| `cloudformation/foundation.yaml` | `scripts/01-foundation.sh` | SQS job, decision and failure queues (with DLQs), DynamoDB case table, knowledge bucket, ECR repositories, guardrail, Cognito machine clients, client-secret secret, IAM roles |
-| `knowledge-base/*.json` | `scripts/03-knowledge-base.sh` | Request bodies for the managed knowledge base and its two data sources |
-| `agentcore/*.json` | `scripts/04`–`06` | Request bodies for the AgentCore runtimes, the OAuth credential provider, the gateway and its targets |
-| `cloudformation/workflows.yaml` | `scripts/07-workflows.sh` | Lambda dispatcher, the two Step Functions state machines, the two EventBridge Pipes |
-| `statemachines/*.asl.json` | packaged with `workflows.yaml` | State machine definitions (JSONata) |
-| `dispatcher/handler.py` | packaged with `workflows.yaml` | Starts one agent invocation and returns |
+| `cloudformation/foundation.yaml` | `scripts/01-foundation.sh` | SQS jobs and decisions queues with DLQs, DynamoDB case table, knowledge bucket, Cognito machine clients, client-secret secret |
+| `cloudformation/knowledge.yaml` | `scripts/02-knowledge-base.sh` | Guardrail (PII masking) and the knowledge base service role |
+| `knowledge-base/*.json` | `scripts/02-knowledge-base.sh` | Request bodies for the managed knowledge base and its two data sources |
+| `cloudformation/mcp-servers.yaml` | `scripts/03-mcp-servers.sh` | ECR repositories and IAM roles for the MCP server runtimes and the gateway |
+| `agentcore/*.json` | `scripts/03-mcp-servers.sh` | Request bodies for the MCP runtimes, the OAuth credential provider, the gateway and its targets |
+| `cloudformation/agent-ecs.yaml` | `scripts/04-agent.sh` | Inquiry agent on Amazon ECS: VPC with public subnets, security group (outbound only), ECR repository, cluster, Fargate task definition and service, task and execution roles, log group |
 
 AgentCore and the managed knowledge base are created with the AWS CLI rather than
 CloudFormation because they are new. The scripts fill in the JSON templates with `jq`, so the
 request shapes are easy to review in one place.
+
+## Inquiry agent on ECS
+
+- Fargate, ARM64, two tasks by default. Each task runs one investigation and one decision at a
+  time, so scale with `DesiredCount`.
+- Public subnets with `AssignPublicIp`, and a security group with outbound HTTPS only. The
+  agent has no inbound ports. This keeps the sample small. For production, use private
+  subnets with VPC endpoints or a NAT gateway.
+- Settings reach the agent in `BAL_CONFIG_DATA`. The two Cognito client secrets are injected
+  from AWS Secrets Manager by ECS (`secrets` in the task definition), using the execution role.
+- Task role permissions:
+  - `bedrock:InvokeModel` on Anthropic models and US inference profiles, and
+    `bedrock:ApplyGuardrail` on the guardrail.
+  - `bedrock:Retrieve` and `bedrock:IngestKnowledgeBaseDocuments` on the knowledge base.
+    The Ballerina client also needs `GetKnowledgeBase`, `GetDataSource` and
+    `GetKnowledgeBaseDocuments`.
+  - `sqs:ReceiveMessage`, `DeleteMessage`, `ChangeMessageVisibility` and `GetQueueAttributes`
+    on the two queues.
+  - `dynamodb:GetItem` and `UpdateItem` on the case table.
 
 ## Items to verify before relying on them
 
@@ -23,10 +42,10 @@ API reference for your AWS CLI version:
   requests the Ballerina module sends for a `MANAGED` knowledge base and its custom source.
 - `knowledge-base/s3-data-source.json`: **TODO(verify)** the connector parameters for an S3
   source on a managed knowledge base (`type`, `version`, `bucketArn`, `inclusionPrefixes`).
-  If they differ, add the S3 source in the console and set `S3_DATA_SOURCE_ID` in
-  `.deploy/outputs.env`.
-- `agentcore/mcp-runtime.json`, `agent-runtime.json`: **TODO(verify)** field names for
-  `bedrock-agentcore-control create-agent-runtime`, including `environmentVariables`.
+  If they differ, add the S3 source in the console (prefix `knowledge/`) and set
+  `S3DataSourceId` in `.deploy/outputs.env`.
+- `agentcore/mcp-runtime.json`: **TODO(verify)** field names for
+  `bedrock-agentcore-control create-agent-runtime`.
 - `agentcore/oauth-provider.json`: **TODO(verify)** the shape of
   `create-oauth2-credential-provider` for a custom OAuth 2.0 provider (Cognito).
 - `agentcore/gateway.json`, `gateway-target.json`: **TODO(verify)** the MCP server target
