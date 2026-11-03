@@ -8,7 +8,8 @@ dir="$(cd "$(dirname "$0")" && pwd)"
 "${dir}/02-knowledge-base.sh"
 "${dir}/03-mcp-servers.sh"
 "${dir}/04-agent.sh"
+"${dir}/05-listener.sh"
 
 echo
 echo "Deployed. Run the demo:"
-echo "  ./scripts/05-demo.sh"
+echo "  ./scripts/06-demo.sh"

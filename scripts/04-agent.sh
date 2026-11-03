@@ -1,48 +1,76 @@
 #!/usr/bin/env bash
-# Step 4: the inquiry agent on Amazon ECS (infra/cloudformation/agent-ecs.yaml).
-#   1. On the first run, create the stack with no tasks, to get the ECR repository.
+# Step 4: the inquiry agent on Amazon Bedrock AgentCore Runtime (HTTP protocol, port 8080, ARM64).
+#   1. ECR repository and execution role (infra/cloudformation/agent-runtime.yaml).
 #   2. Build the ARM64 agent image and push it.
-#   3. Update the stack with the new image tag and two tasks, and wait for the service.
+#   3. Create or update the runtime (infra/agentcore/inquiry-agent.json). Settings go in
+#      BAL_CONFIG_DATA; no secrets are passed (the agent reads them from Secrets Manager with its
+#      execution role). The runtime uses IAM (SigV4) inbound auth, so only principals with
+#      bedrock-agentcore:InvokeAgentRuntime - here, the listener's task role - can call it.
+# TODO(verify): request fields against `aws bedrock-agentcore-control create-agent-runtime help`.
 source "$(dirname "$0")/lib.sh"
-require aws docker
-need GuardrailId GuardrailArn GuardrailVersion KnowledgeBaseId CustomDataSourceId GatewayUrl
+require aws docker jq
+need GuardrailId GuardrailArn GuardrailVersion KnowledgeBaseId CustomDataSourceId GatewayUrl \
+    CognitoTokenUrl InvestigatorClientId ApplierClientId GatewayClientSecretsArn
 
-deploy_agent_stack() {
-    local image_tag="$1" desired_count="$2"
-    aws cloudformation deploy \
-        --stack-name "${AGENT_STACK}" \
-        --template-file "${REPO_ROOT}/infra/cloudformation/agent-ecs.yaml" \
-        --capabilities CAPABILITY_IAM \
-        --parameter-overrides \
-            "ProjectName=${PROJECT_NAME}" \
-            "FoundationStackName=${FOUNDATION_STACK}" \
-            "ImageTag=${image_tag}" \
-            "DesiredCount=${desired_count}" \
-            "ModelId=${MODEL_ID}" \
-            "GuardrailId=${GuardrailId}" \
-            "GuardrailArn=${GuardrailArn}" \
-            "GuardrailVersion=${GuardrailVersion}" \
-            "KnowledgeBaseId=${KnowledgeBaseId}" \
-            "CustomDataSourceId=${CustomDataSourceId}" \
-            "GatewayUrl=${GatewayUrl}" \
-        --no-fail-on-empty-changeset
-    save_stack_outputs "${AGENT_STACK}"
-}
+log "Deploying stack ${AGENT_STACK} (repository and execution role)"
+aws cloudformation deploy \
+    --stack-name "${AGENT_STACK}" \
+    --template-file "${REPO_ROOT}/infra/cloudformation/agent-runtime.yaml" \
+    --capabilities CAPABILITY_NAMED_IAM \
+    --parameter-overrides \
+        "ProjectName=${PROJECT_NAME}" \
+        "FoundationStackName=${FOUNDATION_STACK}" \
+        "GuardrailArn=${GuardrailArn}" \
+        "KnowledgeBaseId=${KnowledgeBaseId}" \
+    --no-fail-on-empty-changeset
+save_stack_outputs "${AGENT_STACK}"
+need AgentRepositoryUri AgentRuntimeRoleArn
 
-if [[ -z "${AgentRepositoryUri:-}" ]]; then
-    log "Creating stack ${AGENT_STACK} with no tasks, to get the image repository"
-    deploy_agent_stack "none" 0
-fi
-
-tag="$(image_tag)"
+image="${AgentRepositoryUri}:$(image_tag)"
 ecr_login "${AgentRepositoryUri%%/*}"
-build_and_push "${AgentRepositoryUri}:${tag}" "${REPO_ROOT}/inquiry-agent"
-save AgentImageTag "${tag}"
+build_and_push "${image}" "${REPO_ROOT}/inquiry-agent"
+save AgentImage "${image}"
 
-log "Deploying the agent service with image ${tag}"
-deploy_agent_stack "${tag}" 2
+config="$(cat <<TOML
+awsRegion = "${AWS_REGION}"
+modelId = "${MODEL_ID}"
+investigationTimeoutSeconds = 600
+guardrailId = "${GuardrailId}"
+guardrailVersion = "${GuardrailVersion}"
+knowledgeBaseId = "${KnowledgeBaseId}"
+customDataSourceId = "${CustomDataSourceId}"
+gatewayUrl = "${GatewayUrl}"
+tokenUrl = "${CognitoTokenUrl}"
+investigatorClientId = "${InvestigatorClientId}"
+applierClientId = "${ApplierClientId}"
+clientSecretsArn = "${GatewayClientSecretsArn}"
+TOML
+)"
 
-log "Waiting for the service to become stable"
-aws ecs wait services-stable --cluster "${ClusterName}" --services "${ServiceName}"
-log "Inquiry agent running on ECS (cluster ${ClusterName}, service ${ServiceName})"
-log "Logs: aws logs tail ${AgentLogGroupName} --follow"
+request="$(jq \
+    --arg name "${PROJECT_NAME//-/_}_inquiry_agent" \
+    --arg image "${image}" \
+    --arg role "${AgentRuntimeRoleArn}" \
+    --arg config "${config}" \
+    '.agentRuntimeName = $name
+     | .agentRuntimeArtifact.containerConfiguration.containerUri = $image
+     | .roleArn = $role
+     | .environmentVariables.BAL_CONFIG_DATA = $config' \
+    "${AGENTCORE_TEMPLATES}/inquiry-agent.json")"
+
+if [[ -z "${AgentRuntimeId:-}" ]]; then
+    log "Creating the inquiry agent runtime"
+    sleep 15  # give a newly created IAM role time to propagate
+    result="$(aws bedrock-agentcore-control create-agent-runtime --cli-input-json "${request}")"
+else
+    log "Updating the inquiry agent runtime ${AgentRuntimeId}"
+    request="$(jq --arg id "${AgentRuntimeId}" 'del(.agentRuntimeName) | .agentRuntimeId = $id' <<<"${request}")"
+    result="$(aws bedrock-agentcore-control update-agent-runtime --cli-input-json "${request}")"
+fi
+save AgentRuntimeId "$(jq -r .agentRuntimeId <<<"${result}")"
+save AgentRuntimeArn "$(jq -r .agentRuntimeArn <<<"${result}")"
+
+wait_for "Inquiry agent runtime" "READY" "CREATE_FAILED|UPDATE_FAILED" \
+    aws bedrock-agentcore-control get-agent-runtime --agent-runtime-id "${AgentRuntimeId}" \
+        --query status --output text
+log "Inquiry agent runtime ready: ${AgentRuntimeArn}"

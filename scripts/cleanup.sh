@@ -13,10 +13,17 @@ delete_stack() {
     try aws cloudformation wait stack-delete-complete --stack-name "${stack}"
 }
 
-# --- Step 4: the agent on ECS -------------------------------------------------
-delete_images "${PROJECT_NAME}/inquiry-agent" || true
-delete_stack "${AGENT_STACK}"
-for key in AgentRepositoryUri AgentImageTag ClusterName ServiceName AgentLogGroupName; do forget "${key}"; done
+# --- Step 5: the listener on ECS ----------------------------------------------
+delete_images "${PROJECT_NAME}/inquiry-listener" || true
+delete_stack "${LISTENER_STACK}"
+for key in ListenerRepositoryUri ListenerImageTag ClusterName ServiceName ListenerLogGroupName; do forget "${key}"; done
+
+# --- Step 4: the agent on AgentCore Runtime ------------------------------------
+if [[ -n "${AgentRuntimeId:-}" ]]; then
+    log "Deleting the inquiry agent runtime"
+    try aws bedrock-agentcore-control delete-agent-runtime --agent-runtime-id "${AgentRuntimeId}"
+    forget AgentRuntimeId; forget AgentRuntimeArn; forget AgentImage
+fi
 
 # --- Step 3: gateway, MCP runtimes, repositories ------------------------------
 if [[ -n "${GatewayId:-}" ]]; then
@@ -49,6 +56,10 @@ for server in Reservation Loyalty Payment; do
     fi
 done
 
+# --- ECR repositories and roles for the agent and the MCP servers ---------------
+delete_images "${PROJECT_NAME}/inquiry-agent" || true
+delete_stack "${AGENT_STACK}"
+forget AgentRepositoryUri; forget AgentRuntimeRoleArn
 for server in reservation loyalty payment; do
     delete_images "${PROJECT_NAME}/${server}-mcp" || true
 done

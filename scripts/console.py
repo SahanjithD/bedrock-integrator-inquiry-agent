@@ -3,8 +3,8 @@
 
 A representative uses it to send an investigation job, read the agent's findings, and
 approve or reject the proposed change. The case item in DynamoDB stands in for the ticket a
-real support system would hold. The inquiry agent on Amazon ECS picks up jobs and decisions
-from the two SQS queues.
+real support system would hold. The inquiry listener on Amazon ECS picks up jobs and decisions
+from the two SQS queues and calls the inquiry agent on AgentCore Runtime.
 
     python3 scripts/console.py submit --sample 1
     python3 scripts/console.py show CASE-20261103-1a2b3c --watch

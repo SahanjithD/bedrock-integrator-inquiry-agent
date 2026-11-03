@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Step 5: create the three sample cases and wait for their investigations.
+# Step 6: create the three sample cases and wait for their investigations.
 # Approve or reject each one afterwards with scripts/console.py decide.
 source "$(dirname "$0")/lib.sh"
 require python3
