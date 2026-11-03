@@ -1,0 +1,246 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Customer inquiry agent sample - per-job workflows: EventBridge Pipes from the job and
+  decision queues to two Step Functions Standard state machines, and the Lambda dispatcher
+  that starts the inquiry agent on AgentCore Runtime. Deploy with scripts/07-workflows.sh,
+  which runs `aws cloudformation package` to upload the local code and definitions.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: inquiry-agent
+  FoundationStackName:
+    Type: String
+    Default: inquiry-agent-foundation
+    Description: Name of the stack created from foundation.yaml.
+  AgentRuntimeArn:
+    Type: String
+    Description: ARN of the inquiry agent runtime, from scripts/06-agent-runtime.sh.
+  AgentRuntimeQualifier:
+    Type: String
+    Default: DEFAULT
+    Description: Runtime endpoint name to invoke.
+
+Resources:
+  # ---------------------------------------------------------------------------
+  # Dispatcher
+  # ---------------------------------------------------------------------------
+  DispatcherRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: invoke-agent-runtime
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: bedrock-agentcore:InvokeAgentRuntime
+                Resource:
+                  - !Ref AgentRuntimeArn
+                  - !Sub ${AgentRuntimeArn}/*
+
+  DispatcherFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-dispatcher
+      Description: Starts one inquiry-agent invocation and returns; the agent answers with the task token.
+      Runtime: python3.13
+      Architectures: [arm64]
+      Handler: handler.handler
+      Code: ../dispatcher
+      Timeout: 60
+      MemorySize: 256
+      Role: !GetAtt DispatcherRole.Arn
+      Environment:
+        Variables:
+          AGENT_RUNTIME_ARN: !Ref AgentRuntimeArn
+          AGENT_RUNTIME_QUALIFIER: !Ref AgentRuntimeQualifier
+
+  DispatcherLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${ProjectName}-dispatcher
+      RetentionInDays: 30
+
+  # ---------------------------------------------------------------------------
+  # State machines
+  # ---------------------------------------------------------------------------
+  StateMachineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+      Policies:
+        - PolicyName: workflow
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !GetAtt DispatcherFunction.Arn
+              - Effect: Allow
+                Action: dynamodb:UpdateItem
+                Resource:
+                  Fn::ImportValue: !Sub ${FoundationStackName}-CaseTableArn
+              - Effect: Allow
+                Action: sqs:SendMessage
+                Resource:
+                  Fn::ImportValue: !Sub ${FoundationStackName}-FailureQueueArn
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogDelivery
+                  - logs:GetLogDelivery
+                  - logs:UpdateLogDelivery
+                  - logs:DeleteLogDelivery
+                  - logs:ListLogDeliveries
+                  - logs:PutResourcePolicy
+                  - logs:DescribeResourcePolicies
+                  - logs:DescribeLogGroups
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - xray:PutTraceSegments
+                  - xray:PutTelemetryRecords
+                  - xray:GetSamplingRules
+                  - xray:GetSamplingTargets
+                Resource: "*"
+
+  WorkflowLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/vendedlogs/states/${ProjectName}
+      RetentionInDays: 30
+
+  InvestigateStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub ${ProjectName}-investigate
+      StateMachineType: STANDARD
+      RoleArn: !GetAtt StateMachineRole.Arn
+      DefinitionS3Location: ../statemachines/investigate.asl.json
+      DefinitionSubstitutions:
+        CaseTableName:
+          Fn::ImportValue: !Sub ${FoundationStackName}-CaseTableName
+        FailureQueueUrl:
+          Fn::ImportValue: !Sub ${FoundationStackName}-FailureQueueUrl
+        DispatcherFunctionArn: !GetAtt DispatcherFunction.Arn
+      LoggingConfiguration:
+        Level: ERROR
+        IncludeExecutionData: false
+        Destinations:
+          - CloudWatchLogsLogGroup:
+              LogGroupArn: !GetAtt WorkflowLogGroup.Arn
+      TracingConfiguration:
+        Enabled: true
+
+  ApplyStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub ${ProjectName}-apply
+      StateMachineType: STANDARD
+      RoleArn: !GetAtt StateMachineRole.Arn
+      DefinitionS3Location: ../statemachines/apply.asl.json
+      DefinitionSubstitutions:
+        CaseTableName:
+          Fn::ImportValue: !Sub ${FoundationStackName}-CaseTableName
+        FailureQueueUrl:
+          Fn::ImportValue: !Sub ${FoundationStackName}-FailureQueueUrl
+        DispatcherFunctionArn: !GetAtt DispatcherFunction.Arn
+      LoggingConfiguration:
+        Level: ERROR
+        IncludeExecutionData: false
+        Destinations:
+          - CloudWatchLogsLogGroup:
+              LogGroupArn: !GetAtt WorkflowLogGroup.Arn
+      TracingConfiguration:
+        Enabled: true
+
+  # ---------------------------------------------------------------------------
+  # Pipes: one execution per message. Standard workflows are started
+  # FIRE_AND_FORGET, so the message is deleted once the execution starts.
+  # ---------------------------------------------------------------------------
+  PipeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: pipes.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+      Policies:
+        - PolicyName: queues-to-workflows
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [sqs:ReceiveMessage, sqs:DeleteMessage, sqs:GetQueueAttributes]
+                Resource:
+                  - Fn::ImportValue: !Sub ${FoundationStackName}-JobQueueArn
+                  - Fn::ImportValue: !Sub ${FoundationStackName}-DecisionQueueArn
+              - Effect: Allow
+                Action: states:StartExecution
+                Resource:
+                  - !Ref InvestigateStateMachine
+                  - !Ref ApplyStateMachine
+
+  JobPipe:
+    Type: AWS::Pipes::Pipe
+    Properties:
+      Name: !Sub ${ProjectName}-jobs
+      Description: Starts one investigation per job message.
+      RoleArn: !GetAtt PipeRole.Arn
+      Source:
+        Fn::ImportValue: !Sub ${FoundationStackName}-JobQueueArn
+      SourceParameters:
+        SqsQueueParameters:
+          BatchSize: 1
+      Target: !Ref InvestigateStateMachine
+      TargetParameters:
+        StepFunctionStateMachineParameters:
+          InvocationType: FIRE_AND_FORGET
+
+  DecisionPipe:
+    Type: AWS::Pipes::Pipe
+    Properties:
+      Name: !Sub ${ProjectName}-decisions
+      Description: Starts one apply workflow per decision message.
+      RoleArn: !GetAtt PipeRole.Arn
+      Source:
+        Fn::ImportValue: !Sub ${FoundationStackName}-DecisionQueueArn
+      SourceParameters:
+        SqsQueueParameters:
+          BatchSize: 1
+      Target: !Ref ApplyStateMachine
+      TargetParameters:
+        StepFunctionStateMachineParameters:
+          InvocationType: FIRE_AND_FORGET
+
+Outputs:
+  DispatcherFunctionArn:
+    Value: !GetAtt DispatcherFunction.Arn
+  InvestigateStateMachineArn:
+    Value: !Ref InvestigateStateMachine
+  ApplyStateMachineArn:
+    Value: !Ref ApplyStateMachine

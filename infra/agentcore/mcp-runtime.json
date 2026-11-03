@@ -1,0 +1,13 @@
+{
+  "agentRuntimeName": "",
+  "description": "",
+  "agentRuntimeArtifact": {
+    "containerConfiguration": {"containerUri": ""}
+  },
+  "roleArn": "",
+  "networkConfiguration": {"networkMode": "PUBLIC"},
+  "protocolConfiguration": {"serverProtocol": "MCP"},
+  "authorizerConfiguration": {
+    "customJWTAuthorizer": {"discoveryUrl": "", "allowedClients": []}
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "type": "MANAGED_KNOWLEDGE_BASE_CONNECTOR",
+  "managedKnowledgeBaseConnectorConfiguration": {
+    "connectorParameters": {
+      "type": "S3",
+      "version": "1",
+      "bucketArn": "",
+      "inclusionPrefixes": ["knowledge/"]
+    }
+  }
+}

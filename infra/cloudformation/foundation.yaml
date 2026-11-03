@@ -1,0 +1,562 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Customer inquiry agent sample - foundation resources: queues, case table, knowledge
+  bucket, container repositories, guardrail, Cognito for gateway auth, and IAM roles.
+  AgentCore runtimes, the gateway and the knowledge base are created by the scripts in
+  scripts/. Synthetic data only.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: inquiry-agent
+    AllowedPattern: "^[a-z][a-z0-9-]{2,30}$"
+    Description: Prefix for resource names. Lowercase letters, digits and hyphens.
+  CognitoDomainPrefix:
+    Type: String
+    AllowedPattern: "^[a-z0-9-]{3,63}$"
+    Description: Globally unique prefix for the Cognito hosted domain used for client-credentials tokens.
+
+Resources:
+  # ---------------------------------------------------------------------------
+  # Queues. Pipes start one workflow per message; failed starts go to the DLQs.
+  # Jobs that fail inside a workflow go to the failure queue.
+  # ---------------------------------------------------------------------------
+  JobDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${ProjectName}-jobs-dlq
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+
+  JobQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${ProjectName}-jobs
+      VisibilityTimeout: 120
+      MessageRetentionPeriod: 345600
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt JobDeadLetterQueue.Arn
+        maxReceiveCount: 3
+
+  DecisionDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${ProjectName}-decisions-dlq
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+
+  DecisionQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${ProjectName}-decisions
+      VisibilityTimeout: 120
+      MessageRetentionPeriod: 345600
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DecisionDeadLetterQueue.Arn
+        maxReceiveCount: 3
+
+  FailureQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${ProjectName}-failures
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+
+  # ---------------------------------------------------------------------------
+  # Case table. One item per case; stands in for a ticket in a support system.
+  # ---------------------------------------------------------------------------
+  CaseTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${ProjectName}-cases
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: caseId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: caseId
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  # ---------------------------------------------------------------------------
+  # Knowledge bucket: runbooks and policies under knowledge/ (S3 data source),
+  # packaged templates under deploy/.
+  # ---------------------------------------------------------------------------
+  KnowledgeBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${ProjectName}-knowledge-${AWS::AccountId}-${AWS::Region}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+
+  KnowledgeBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref KnowledgeBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt KnowledgeBucket.Arn
+              - !Sub ${KnowledgeBucket.Arn}/*
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+
+  # ---------------------------------------------------------------------------
+  # Container repositories (ARM64 images for AgentCore Runtime).
+  # ---------------------------------------------------------------------------
+  InquiryAgentRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub ${ProjectName}/inquiry-agent
+      EmptyOnDelete: true
+      ImageScanningConfiguration:
+        ScanOnPush: true
+
+  ReservationMcpRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub ${ProjectName}/reservation-mcp
+      EmptyOnDelete: true
+      ImageScanningConfiguration:
+        ScanOnPush: true
+
+  LoyaltyMcpRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub ${ProjectName}/loyalty-mcp
+      EmptyOnDelete: true
+      ImageScanningConfiguration:
+        ScanOnPush: true
+
+  PaymentMcpRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub ${ProjectName}/payment-mcp
+      EmptyOnDelete: true
+      ImageScanningConfiguration:
+        ScanOnPush: true
+
+  # ---------------------------------------------------------------------------
+  # Guardrail. Personal data is masked in model output (findings and draft replies).
+  # Input is checked but not changed, so tool results reach the model intact.
+  # ---------------------------------------------------------------------------
+  Guardrail:
+    Type: AWS::Bedrock::Guardrail
+    Properties:
+      Name: !Sub ${ProjectName}-personal-data
+      Description: Masks personal data in the inquiry agent's output.
+      BlockedInputMessaging: This request cannot be processed.
+      BlockedOutputsMessaging: The response was withheld by the guardrail.
+      SensitiveInformationPolicyConfig:
+        PiiEntitiesConfig:
+          - Type: NAME
+            Action: ANONYMIZE
+            InputAction: NONE
+            OutputAction: ANONYMIZE
+          - Type: EMAIL
+            Action: ANONYMIZE
+            InputAction: NONE
+            OutputAction: ANONYMIZE
+          - Type: PHONE
+            Action: ANONYMIZE
+            InputAction: NONE
+            OutputAction: ANONYMIZE
+          - Type: ADDRESS
+            Action: ANONYMIZE
+            InputAction: NONE
+            OutputAction: ANONYMIZE
+          - Type: CREDIT_DEBIT_CARD_NUMBER
+            Action: ANONYMIZE
+            InputAction: ANONYMIZE
+            OutputAction: ANONYMIZE
+          - Type: CREDIT_DEBIT_CARD_CVV
+            Action: BLOCK
+            InputAction: BLOCK
+            OutputAction: BLOCK
+
+  GuardrailVersion:
+    Type: AWS::Bedrock::GuardrailVersion
+    Properties:
+      GuardrailIdentifier: !GetAtt Guardrail.GuardrailId
+      Description: Initial version
+
+  # ---------------------------------------------------------------------------
+  # Cognito: client-credentials tokens for the gateway (inbound) and for the
+  # gateway's calls to the MCP runtimes (outbound).
+  # ---------------------------------------------------------------------------
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub ${ProjectName}-machine-clients
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: true
+
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Ref CognitoDomainPrefix
+      UserPoolId: !Ref UserPool
+
+  ResourceServer:
+    Type: AWS::Cognito::UserPoolResourceServer
+    Properties:
+      UserPoolId: !Ref UserPool
+      Identifier: inquiry-gateway
+      Name: Inquiry gateway
+      Scopes:
+        - ScopeName: read
+          ScopeDescription: Read-only tools, used by the investigate action
+        - ScopeName: write
+          ScopeDescription: Write tools, used by the apply action after approval
+        - ScopeName: invoke
+          ScopeDescription: Gateway calls to the MCP server runtimes
+
+  InvestigatorClient:
+    Type: AWS::Cognito::UserPoolClient
+    DependsOn: ResourceServer
+    Properties:
+      UserPoolId: !Ref UserPool
+      ClientName: !Sub ${ProjectName}-investigator
+      GenerateSecret: true
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows: [client_credentials]
+      AllowedOAuthScopes: [inquiry-gateway/read]
+      AccessTokenValidity: 60
+      TokenValidityUnits:
+        AccessToken: minutes
+
+  ApplierClient:
+    Type: AWS::Cognito::UserPoolClient
+    DependsOn: ResourceServer
+    Properties:
+      UserPoolId: !Ref UserPool
+      ClientName: !Sub ${ProjectName}-applier
+      GenerateSecret: true
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows: [client_credentials]
+      AllowedOAuthScopes: [inquiry-gateway/write]
+      AccessTokenValidity: 15
+      TokenValidityUnits:
+        AccessToken: minutes
+
+  GatewayOutboundClient:
+    Type: AWS::Cognito::UserPoolClient
+    DependsOn: ResourceServer
+    Properties:
+      UserPoolId: !Ref UserPool
+      ClientName: !Sub ${ProjectName}-gateway-outbound
+      GenerateSecret: true
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows: [client_credentials]
+      AllowedOAuthScopes: [inquiry-gateway/invoke]
+      AccessTokenValidity: 60
+      TokenValidityUnits:
+        AccessToken: minutes
+
+  GatewayClientSecrets:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub ${ProjectName}/gateway-clients
+      Description: Cognito client secrets the inquiry agent uses to call the gateway.
+      SecretString: !Sub '{"investigatorClientSecret":"${InvestigatorClient.ClientSecret}","applierClientSecret":"${ApplierClient.ClientSecret}"}'
+
+  # ---------------------------------------------------------------------------
+  # IAM roles
+  # ---------------------------------------------------------------------------
+  InquiryAgentRuntimeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${ProjectName}-agent-runtime
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: bedrock-agentcore.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+              ArnLike:
+                aws:SourceArn: !Sub arn:aws:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:*
+      ManagedPolicyArns:
+        - !Ref RuntimeBaselinePolicy
+      Policies:
+        - PolicyName: inquiry-agent
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: PullImage
+                Effect: Allow
+                Action: [ecr:BatchGetImage, ecr:GetDownloadUrlForLayer]
+                Resource: !GetAtt InquiryAgentRepository.Arn
+              - Sid: InvokeModel
+                Effect: Allow
+                Action: [bedrock:InvokeModel, bedrock:InvokeModelWithResponseStream]
+                Resource:
+                  - arn:aws:bedrock:*::foundation-model/anthropic.*
+                  - !Sub arn:aws:bedrock:*:${AWS::AccountId}:inference-profile/us.anthropic.*
+              - Sid: ApplyGuardrail
+                Effect: Allow
+                Action: bedrock:ApplyGuardrail
+                Resource: !GetAtt Guardrail.GuardrailArn
+              - Sid: UseKnowledgeBase
+                Effect: Allow
+                Action:
+                  - bedrock:Retrieve
+                  - bedrock:Rerank
+                  - bedrock:GetKnowledgeBase
+                  - bedrock:GetDataSource
+                  - bedrock:ListDataSources
+                  - bedrock:IngestKnowledgeBaseDocuments
+                  - bedrock:GetKnowledgeBaseDocuments
+                  - bedrock:ListKnowledgeBaseDocuments
+                # The knowledge base is created after this stack, by scripts/03-knowledge-base.sh.
+                Resource: !Sub arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/*
+              # TODO(verify): permissions for the managed reranking model, if the account uses it.
+              - Sid: ReadAndUpdateCases
+                Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:UpdateItem]
+                Resource: !GetAtt CaseTable.Arn
+              - Sid: ReportToStepFunctions
+                Effect: Allow
+                Action: [states:SendTaskSuccess, states:SendTaskFailure]
+                Resource: !Sub arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${ProjectName}-*
+              - Sid: ReadGatewayClientSecrets
+                Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref GatewayClientSecrets
+
+  McpServerRuntimeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${ProjectName}-mcp-runtime
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: bedrock-agentcore.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+              ArnLike:
+                aws:SourceArn: !Sub arn:aws:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:*
+      ManagedPolicyArns:
+        - !Ref RuntimeBaselinePolicy
+      Policies:
+        - PolicyName: pull-images
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [ecr:BatchGetImage, ecr:GetDownloadUrlForLayer]
+                Resource:
+                  - !GetAtt ReservationMcpRepository.Arn
+                  - !GetAtt LoyaltyMcpRepository.Arn
+                  - !GetAtt PaymentMcpRepository.Arn
+
+  # Permissions every AgentCore runtime in this sample needs: registry login, logs,
+  # traces, metrics and workload identity tokens.
+  RuntimeBaselinePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub ${ProjectName}-runtime-baseline
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: RegistryLogin
+            Effect: Allow
+            Action: ecr:GetAuthorizationToken
+            Resource: "*"
+          - Sid: Logs
+            Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+              - logs:DescribeLogStreams
+              - logs:DescribeLogGroups
+            Resource: !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/bedrock-agentcore/runtimes/*
+          - Sid: Traces
+            Effect: Allow
+            Action:
+              - xray:PutTraceSegments
+              - xray:PutTelemetryRecords
+              - xray:GetSamplingRules
+              - xray:GetSamplingTargets
+            Resource: "*"
+          - Sid: Metrics
+            Effect: Allow
+            Action: cloudwatch:PutMetricData
+            Resource: "*"
+            Condition:
+              StringEquals:
+                cloudwatch:namespace: bedrock-agentcore
+          - Sid: WorkloadIdentity
+            Effect: Allow
+            Action:
+              - bedrock-agentcore:GetWorkloadAccessToken
+              - bedrock-agentcore:GetWorkloadAccessTokenForJWT
+            Resource:
+              - !Sub arn:aws:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:workload-identity-directory/default
+              - !Sub arn:aws:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:workload-identity-directory/default/workload-identity/*
+
+  GatewayRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${ProjectName}-gateway
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: bedrock-agentcore.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+              ArnLike:
+                aws:SourceArn: !Sub arn:aws:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:*
+      Policies:
+        # TODO(verify): the exact actions the gateway needs to fetch outbound OAuth tokens
+        # from AgentCore Identity for MCP server targets.
+        - PolicyName: outbound-oauth
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock-agentcore:GetWorkloadAccessToken
+                  - bedrock-agentcore:GetResourceOauth2Token
+                Resource:
+                  - !Sub arn:aws:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:workload-identity-directory/default
+                  - !Sub arn:aws:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:workload-identity-directory/default/workload-identity/*
+                  - !Sub arn:aws:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:token-vault/default
+                  - !Sub arn:aws:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:token-vault/default/*
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Sub arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:bedrock-agentcore-identity!*
+
+  KnowledgeBaseRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${ProjectName}-knowledge-base
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: bedrock.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+              ArnLike:
+                aws:SourceArn: !Sub arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/*
+      Policies:
+        # TODO(verify): any further permissions a MANAGED knowledge base needs beyond reading
+        # its S3 source (Bedrock owns the vector store and the managed embedding model).
+        - PolicyName: read-knowledge-source
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt KnowledgeBucket.Arn
+                Condition:
+                  StringLike:
+                    s3:prefix: ["knowledge/*"]
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub ${KnowledgeBucket.Arn}/knowledge/*
+
+Outputs:
+  JobQueueUrl:
+    Value: !Ref JobQueue
+  JobQueueArn:
+    Value: !GetAtt JobQueue.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-JobQueueArn
+  DecisionQueueUrl:
+    Value: !Ref DecisionQueue
+  DecisionQueueArn:
+    Value: !GetAtt DecisionQueue.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-DecisionQueueArn
+  FailureQueueUrl:
+    Value: !Ref FailureQueue
+    Export:
+      Name: !Sub ${AWS::StackName}-FailureQueueUrl
+  FailureQueueArn:
+    Value: !GetAtt FailureQueue.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-FailureQueueArn
+  CaseTableName:
+    Value: !Ref CaseTable
+    Export:
+      Name: !Sub ${AWS::StackName}-CaseTableName
+  CaseTableArn:
+    Value: !GetAtt CaseTable.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-CaseTableArn
+  KnowledgeBucketName:
+    Value: !Ref KnowledgeBucket
+  InquiryAgentRepositoryUri:
+    Value: !GetAtt InquiryAgentRepository.RepositoryUri
+  ReservationMcpRepositoryUri:
+    Value: !GetAtt ReservationMcpRepository.RepositoryUri
+  LoyaltyMcpRepositoryUri:
+    Value: !GetAtt LoyaltyMcpRepository.RepositoryUri
+  PaymentMcpRepositoryUri:
+    Value: !GetAtt PaymentMcpRepository.RepositoryUri
+  GuardrailId:
+    Value: !GetAtt Guardrail.GuardrailId
+  GuardrailVersion:
+    Value: !GetAtt GuardrailVersion.Version
+  UserPoolId:
+    Value: !Ref UserPool
+  CognitoDiscoveryUrl:
+    Value: !Sub https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}/.well-known/openid-configuration
+  CognitoTokenUrl:
+    Value: !Sub https://${CognitoDomainPrefix}.auth.${AWS::Region}.amazoncognito.com/oauth2/token
+  InvestigatorClientId:
+    Value: !Ref InvestigatorClient
+  ApplierClientId:
+    Value: !Ref ApplierClient
+  GatewayOutboundClientId:
+    Value: !Ref GatewayOutboundClient
+  GatewayClientSecretsArn:
+    Value: !Ref GatewayClientSecrets
+  InquiryAgentRuntimeRoleArn:
+    Value: !GetAtt InquiryAgentRuntimeRole.Arn
+  McpServerRuntimeRoleArn:
+    Value: !GetAtt McpServerRuntimeRole.Arn
+  GatewayRoleArn:
+    Value: !GetAtt GatewayRole.Arn
+  KnowledgeBaseRoleArn:
+    Value: !GetAtt KnowledgeBaseRole.Arn

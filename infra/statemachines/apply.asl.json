@@ -1,0 +1,184 @@
+{
+  "Comment": "Handles one approval decision. Started by an EventBridge Pipe from the decision queue (batch size 1). The decision carries only caseId, decision and proposalVersion.",
+  "QueryLanguage": "JSONata",
+  "StartAt": "ReadDecision",
+  "States": {
+    "ReadDecision": {
+      "Type": "Pass",
+      "Assign": {
+        "decision": "{% $parse($states.input[0].body) %}"
+      },
+      "Next": "CheckDecision"
+    },
+    "CheckDecision": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $decision.decision = 'APPROVED' and $type($decision.proposalVersion) = 'number' %}",
+          "Next": "Apply"
+        },
+        {
+          "Condition": "{% $decision.decision = 'REJECTED' and $type($decision.proposalVersion) = 'number' %}",
+          "Next": "MarkRejected"
+        }
+      ],
+      "Default": "InvalidDecision"
+    },
+    "InvalidDecision": {
+      "Type": "Pass",
+      "Assign": {
+        "failure": {
+          "Error": "InvalidDecision",
+          "Cause": "decision must be APPROVED or REJECTED, with a numeric proposalVersion"
+        }
+      },
+      "Next": "SendToFailureQueue"
+    },
+    "MarkRejected": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Arguments": {
+        "TableName": "${CaseTableName}",
+        "Key": {"caseId": {"S": "{% $decision.caseId %}"}},
+        "UpdateExpression": "SET #status = :rejected, updatedAt = :now",
+        "ConditionExpression": "#status = :pending AND proposalVersion = :version",
+        "ExpressionAttributeNames": {"#status": "status"},
+        "ExpressionAttributeValues": {
+          ":rejected": {"S": "REJECTED"},
+          ":pending": {"S": "PENDING_APPROVAL"},
+          ":version": {"N": "{% $string($decision.proposalVersion) %}"},
+          ":now": {"S": "{% $now() %}"}
+        }
+      },
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Assign": {
+            "failure": {
+              "Error": "CaseNotPending",
+              "Cause": "{% $states.errorOutput.Cause %}"
+            }
+          },
+          "Next": "SendToFailureQueue"
+        }
+      ],
+      "End": true
+    },
+    "Apply": {
+      "Type": "Task",
+      "Comment": "The agent claims the case (PENDING_APPROVAL -> APPLYING), calls the stored write tool once, and marks it APPLIED. A retry that finds the case APPLYING marks it NEEDS_REVIEW instead of calling the tool again.",
+      "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+      "Arguments": {
+        "FunctionName": "${DispatcherFunctionArn}",
+        "Payload": {
+          "payload": {
+            "action": "apply",
+            "taskToken": "{% $states.context.Task.Token %}",
+            "caseId": "{% $decision.caseId %}",
+            "proposalVersion": "{% $decision.proposalVersion %}"
+          }
+        }
+      },
+      "TimeoutSeconds": 600,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "DispatchFailed",
+            "ApplyFailed",
+            "States.Timeout",
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 20,
+          "MaxAttempts": 2,
+          "BackoffRate": 3,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "Comment": "The agent already set NEEDS_REVIEW, or the case was not waiting for this version. Leave the status as it is.",
+          "ErrorEquals": ["CaseNeedsReview", "CaseNotPending"],
+          "Assign": {"failure": "{% $states.errorOutput %}"},
+          "Next": "SendToFailureQueue"
+        },
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Assign": {"failure": "{% $states.errorOutput %}"},
+          "Next": "MarkFailedIfUnclaimed"
+        }
+      ],
+      "End": true
+    },
+    "MarkFailedIfUnclaimed": {
+      "Type": "Task",
+      "Comment": "Only a case that was never claimed can be marked FAILED safely.",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Arguments": {
+        "TableName": "${CaseTableName}",
+        "Key": {"caseId": {"S": "{% $decision.caseId %}"}},
+        "UpdateExpression": "SET #status = :failed, failureReason = :reason, updatedAt = :now",
+        "ConditionExpression": "#status = :pending",
+        "ExpressionAttributeNames": {"#status": "status"},
+        "ExpressionAttributeValues": {
+          ":failed": {"S": "FAILED"},
+          ":pending": {"S": "PENDING_APPROVAL"},
+          ":reason": {"S": "{% $substring($failure.Error & ': ' & $failure.Cause, 0, 1000) %}"},
+          ":now": {"S": "{% $now() %}"}
+        }
+      },
+      "Catch": [
+        {
+          "ErrorEquals": ["DynamoDB.ConditionalCheckFailedException"],
+          "Next": "MarkNeedsReviewIfApplying"
+        },
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "SendToFailureQueue"
+        }
+      ],
+      "Next": "SendToFailureQueue"
+    },
+    "MarkNeedsReviewIfApplying": {
+      "Type": "Task",
+      "Comment": "The case was claimed but the outcome of the write is unknown (for example, the task timed out).",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Arguments": {
+        "TableName": "${CaseTableName}",
+        "Key": {"caseId": {"S": "{% $decision.caseId %}"}},
+        "UpdateExpression": "SET #status = :review, failureReason = :reason, updatedAt = :now",
+        "ConditionExpression": "#status = :applying",
+        "ExpressionAttributeNames": {"#status": "status"},
+        "ExpressionAttributeValues": {
+          ":review": {"S": "NEEDS_REVIEW"},
+          ":applying": {"S": "APPLYING"},
+          ":reason": {"S": "{% $substring($failure.Error & ': ' & $failure.Cause, 0, 1000) %}"},
+          ":now": {"S": "{% $now() %}"}
+        }
+      },
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "SendToFailureQueue"
+        }
+      ],
+      "Next": "SendToFailureQueue"
+    },
+    "SendToFailureQueue": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sqs:sendMessage",
+      "Arguments": {
+        "QueueUrl": "${FailureQueueUrl}",
+        "MessageBody": "{% $string({'stage': 'apply', 'caseId': $decision.caseId, 'decision': $decision, 'error': $failure.Error, 'cause': $failure.Cause, 'executionId': $states.context.Execution.Id}) %}"
+      },
+      "Next": "DecisionFailed"
+    },
+    "DecisionFailed": {
+      "Type": "Fail",
+      "Error": "{% $failure.Error %}",
+      "Cause": "{% $substring($exists($failure.Cause) ? $failure.Cause : '', 0, 1000) %}"
+    }
+  }
+}
