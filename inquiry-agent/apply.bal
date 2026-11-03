@@ -111,9 +111,12 @@ isolated function callApprovedTool(string caseId, int version) returns json|erro
         log:printDebug("Closing the gateway connection failed", closed);
     }
 
-    string[] texts = from mcp:ContentBlock block in result.content
-        where block is mcp:TextContent
-        select block.text;
+    string[] texts = [];
+    foreach mcp:ContentBlock block in result.content {
+        if block is mcp:TextContent {
+            texts.push(block.text);
+        }
+    }
     if result?.isError == true {
         return error(string `${action.tool} returned an error: ${string:'join(" ", ...texts)}`);
     }
