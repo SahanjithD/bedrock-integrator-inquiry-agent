@@ -17,8 +17,9 @@ Parameters:
 
 Resources:
   # ---------------------------------------------------------------------------
-  # Queues. The inquiry agent on ECS polls both. A message that fails three times
-  # (maxReceiveCount) moves to its DLQ.
+  # Queues. The inquiry listener on ECS polls both. A received message stays hidden
+  # for 20 minutes, longer than AgentCore's 15-minute limit for a synchronous agent
+  # call. A message that fails three times (maxReceiveCount) moves to its DLQ.
   # ---------------------------------------------------------------------------
   JobDeadLetterQueue:
     Type: AWS::SQS::Queue
@@ -31,8 +32,8 @@ Resources:
     Type: AWS::SQS::Queue
     Properties:
       QueueName: !Sub ${ProjectName}-jobs
-      # Longer than the longest expected investigation (the agent uses the same value).
-      VisibilityTimeout: 900
+      # Above the 15-minute synchronous call limit (the listener uses the same value).
+      VisibilityTimeout: 1200
       MessageRetentionPeriod: 345600
       SqsManagedSseEnabled: true
       RedrivePolicy:
@@ -50,7 +51,7 @@ Resources:
     Type: AWS::SQS::Queue
     Properties:
       QueueName: !Sub ${ProjectName}-decisions
-      VisibilityTimeout: 300
+      VisibilityTimeout: 1200
       MessageRetentionPeriod: 345600
       SqsManagedSseEnabled: true
       RedrivePolicy:
@@ -193,7 +194,7 @@ Resources:
     Type: AWS::SecretsManager::Secret
     Properties:
       Name: !Sub ${ProjectName}/gateway-clients
-      Description: Cognito client secrets the inquiry agent uses to call the gateway. ECS injects them into the task.
+      Description: Cognito client secrets the inquiry agent on AgentCore Runtime uses to call the gateway.
       SecretString: !Sub '{"investigatorClientSecret":"${InvestigatorClient.ClientSecret}","applierClientSecret":"${ApplierClient.ClientSecret}"}'
 
 Outputs:

@@ -6,31 +6,48 @@
 | `cloudformation/knowledge.yaml` | `scripts/02-knowledge-base.sh` | Guardrail (PII masking) and the knowledge base service role |
 | `knowledge-base/*.json` | `scripts/02-knowledge-base.sh` | Request bodies for the managed knowledge base and its two data sources |
 | `cloudformation/mcp-servers.yaml` | `scripts/03-mcp-servers.sh` | ECR repositories and IAM roles for the MCP server runtimes and the gateway |
-| `agentcore/*.json` | `scripts/03-mcp-servers.sh` | Request bodies for the MCP runtimes, the OAuth credential provider, the gateway and its targets |
-| `cloudformation/agent-ecs.yaml` | `scripts/04-agent.sh` | Inquiry agent on Amazon ECS: VPC with public subnets, security group (outbound only), ECR repository, cluster, Fargate task definition and service, task and execution roles, log group |
+| `agentcore/mcp-runtime.json`, `oauth-provider.json`, `gateway*.json` | `scripts/03-mcp-servers.sh` | Request bodies for the MCP runtimes, the OAuth credential provider, the gateway and its targets |
+| `cloudformation/agent-runtime.yaml` | `scripts/04-agent.sh` | ECR repository and execution role for the inquiry agent on AgentCore Runtime |
+| `agentcore/inquiry-agent.json` | `scripts/04-agent.sh` | Request body for the inquiry agent runtime (HTTP protocol) |
+| `cloudformation/listener-ecs.yaml` | `scripts/05-listener.sh` | Inquiry listener on Amazon ECS: VPC with public subnets, outbound-only security group, ECR repository, cluster, Fargate task definition and service (one task), task and execution roles, log group |
 
 AgentCore and the managed knowledge base are created with the AWS CLI rather than
 CloudFormation because they are new. The scripts fill in the JSON templates with `jq`, so the
 request shapes are easy to review in one place.
 
-## Inquiry agent on ECS
+## Inquiry listener on ECS
 
-- Fargate, ARM64, two tasks by default. Each task runs one investigation and one decision at a
-  time, so scale with `DesiredCount`.
+- Fargate, ARM64, one task. It runs up to five investigations and two decisions at once, each
+  waiting for one synchronous agent call.
 - Public subnets with `AssignPublicIp`, and a security group with outbound HTTPS only. The
-  agent has no inbound ports. This keeps the sample small. For production, use private
+  listener has no inbound ports. This keeps the sample small. For production, use private
   subnets with VPC endpoints or a NAT gateway.
-- Settings reach the agent in `BAL_CONFIG_DATA`. The two Cognito client secrets are injected
-  from AWS Secrets Manager by ECS (`secrets` in the task definition), using the execution role.
-- Task role permissions:
-  - `bedrock:InvokeModel` on Anthropic models and US inference profiles, and
-    `bedrock:ApplyGuardrail` on the guardrail.
-  - `bedrock:Retrieve` and `bedrock:IngestKnowledgeBaseDocuments` on the knowledge base.
-    The Ballerina client also needs `GetKnowledgeBase`, `GetDataSource` and
-    `GetKnowledgeBaseDocuments`.
+- Settings reach the listener in `BAL_CONFIG_DATA`. It needs no secrets.
+- Task role:
   - `sqs:ReceiveMessage`, `DeleteMessage`, `ChangeMessageVisibility` and `GetQueueAttributes`
-    on the two queues.
-  - `dynamodb:GetItem` and `UpdateItem` on the case table.
+    on the two queues,
+  - `dynamodb:GetItem` and `UpdateItem` on the case table,
+  - `bedrock-agentcore:InvokeAgentRuntime` on the agent runtime ARN only.
+- Both queues hide a received message for 20 minutes, above AgentCore Runtime's 15-minute limit
+  for a synchronous request.
+
+## Inquiry agent on AgentCore Runtime
+
+- HTTP protocol, ARM64, port 8080. Settings reach the agent in `BAL_CONFIG_DATA`. It reads the
+  Cognito client secrets from Secrets Manager with its execution role.
+- Execution role (`agent-runtime.yaml`):
+  - `bedrock:InvokeModel` on Anthropic models and US inference profiles,
+  - `bedrock:ApplyGuardrail` on the guardrail,
+  - `bedrock:Retrieve` and `bedrock:IngestKnowledgeBaseDocuments` on the knowledge base,
+  - `secretsmanager:GetSecretValue` on the Cognito client secret.
+
+  Two groups of extra permissions are also required:
+  - `GetKnowledgeBase`, `GetDataSource` and `GetKnowledgeBaseDocuments`, which the Ballerina
+    knowledge base client calls,
+  - ECR pull and CloudWatch Logs, which AgentCore Runtime needs to start the container and keep
+    its logs.
+
+  The role has no access to SQS or DynamoDB.
 
 ## Items to verify before relying on them
 
@@ -44,8 +61,10 @@ API reference for your AWS CLI version:
   source on a managed knowledge base (`type`, `version`, `bucketArn`, `inclusionPrefixes`).
   If they differ, add the S3 source in the console (prefix `knowledge/`) and set
   `S3DataSourceId` in `.deploy/outputs.env`.
-- `agentcore/mcp-runtime.json`: **TODO(verify)** field names for
-  `bedrock-agentcore-control create-agent-runtime`.
+- `agentcore/mcp-runtime.json`, `inquiry-agent.json`: **TODO(verify)** field names for
+  `bedrock-agentcore-control create-agent-runtime`, including `environmentVariables`.
+- `cloudformation/listener-ecs.yaml`: **TODO(verify)** whether `InvokeAgentRuntime` also needs
+  the runtime endpoint ARN as a resource.
 - `agentcore/oauth-provider.json`: **TODO(verify)** the shape of
   `create-oauth2-credential-provider` for a custom OAuth 2.0 provider (Cognito).
 - `agentcore/gateway.json`, `gateway-target.json`: **TODO(verify)** the MCP server target

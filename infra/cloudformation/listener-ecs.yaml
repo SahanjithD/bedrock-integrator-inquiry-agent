@@ -1,8 +1,9 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >-
-  Customer inquiry agent sample - the inquiry agent on Amazon ECS (Fargate, ARM64): ECR
-  repository, a small VPC with public subnets, cluster, task definition, service, roles and
-  log group. Deployed by scripts/04-agent.sh.
+  Customer inquiry agent sample - the inquiry listener on Amazon ECS (Fargate, ARM64): ECR
+  repository, a small VPC with public subnets, cluster, task definition, service (one task),
+  roles and log group. The listener reads the SQS queues and calls the inquiry agent on
+  AgentCore Runtime. Deployed by scripts/05-listener.sh.
 
 Parameters:
   ProjectName:
@@ -14,40 +15,32 @@ Parameters:
   ImageTag:
     Type: String
     Default: latest
-    Description: Tag of the inquiry agent image in this stack's ECR repository.
+    Description: Tag of the listener image in this stack's ECR repository.
   DesiredCount:
     Type: Number
-    Default: 2
+    Default: 1
     MinValue: 0
-    Description: Number of agent tasks. Each task runs one investigation and one decision at a time.
-  ModelId:
+    MaxValue: 1
+    Description: >-
+      Number of listener tasks (0 or 1). One task runs up to five investigations and two
+      decisions at once.
+  AgentRuntimeArn:
     Type: String
-    Default: us.anthropic.claude-sonnet-5-5
-    Description: Bedrock model or inference profile ID (Claude Sonnet 5.5, US cross-Region profile).
-  GuardrailId:
+    Description: ARN of the inquiry agent runtime, from scripts/04-agent.sh.
+  AgentRuntimeQualifier:
     Type: String
-  GuardrailArn:
-    Type: String
-  GuardrailVersion:
-    Type: String
-  KnowledgeBaseId:
-    Type: String
-  CustomDataSourceId:
-    Type: String
-  GatewayUrl:
-    Type: String
-    Description: AgentCore Gateway MCP endpoint, from scripts/03-mcp-servers.sh.
+    Default: DEFAULT
   TaskCpu:
     Type: Number
-    Default: 1024
+    Default: 512
   TaskMemory:
     Type: Number
-    Default: 2048
+    Default: 1024
 
 Resources:
   # ---------------------------------------------------------------------------
   # Networking: kept simple for a sample. Public subnets with public IPs, and a
-  # security group that allows outbound traffic only (the agent has no inbound ports).
+  # security group that allows outbound traffic only (the listener has no inbound ports).
   # ---------------------------------------------------------------------------
   Vpc:
     Type: AWS::EC2::VPC
@@ -57,7 +50,7 @@ Resources:
       EnableDnsHostnames: true
       Tags:
         - Key: Name
-          Value: !Sub ${ProjectName}-agent
+          Value: !Sub ${ProjectName}-listener
 
   InternetGateway:
     Type: AWS::EC2::InternetGateway
@@ -76,7 +69,7 @@ Resources:
       AvailabilityZone: !Select [0, !GetAZs ""]
       Tags:
         - Key: Name
-          Value: !Sub ${ProjectName}-agent-public-a
+          Value: !Sub ${ProjectName}-listener-public-a
 
   PublicSubnetB:
     Type: AWS::EC2::Subnet
@@ -86,7 +79,7 @@ Resources:
       AvailabilityZone: !Select [1, !GetAZs ""]
       Tags:
         - Key: Name
-          Value: !Sub ${ProjectName}-agent-public-b
+          Value: !Sub ${ProjectName}-listener-public-b
 
   PublicRouteTable:
     Type: AWS::EC2::RouteTable
@@ -113,13 +106,13 @@ Resources:
       SubnetId: !Ref PublicSubnetB
       RouteTableId: !Ref PublicRouteTable
 
-  AgentSecurityGroup:
+  ListenerSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Inquiry agent tasks - outbound only
+      GroupDescription: Inquiry listener tasks - outbound only
       VpcId: !Ref Vpc
       SecurityGroupEgress:
-        - Description: HTTPS to AWS services, the gateway and Cognito
+        - Description: HTTPS to SQS, DynamoDB and AgentCore Runtime
           IpProtocol: tcp
           FromPort: 443
           ToPort: 443
@@ -128,10 +121,10 @@ Resources:
   # ---------------------------------------------------------------------------
   # Image, cluster and logs
   # ---------------------------------------------------------------------------
-  AgentRepository:
+  ListenerRepository:
     Type: AWS::ECR::Repository
     Properties:
-      RepositoryName: !Sub ${ProjectName}/inquiry-agent
+      RepositoryName: !Sub ${ProjectName}/inquiry-listener
       EmptyOnDelete: true
       ImageScanningConfiguration:
         ScanOnPush: true
@@ -141,16 +134,16 @@ Resources:
     Properties:
       ClusterName: !Sub ${ProjectName}
 
-  AgentLogGroup:
+  ListenerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub /ecs/${ProjectName}/inquiry-agent
+      LogGroupName: !Sub /ecs/${ProjectName}/inquiry-listener
       RetentionInDays: 30
 
   # ---------------------------------------------------------------------------
   # Roles
   # ---------------------------------------------------------------------------
-  # Used by ECS to pull the image, write logs and inject the Cognito client secrets.
+  # Used by ECS to pull the image and write logs.
   ExecutionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -163,17 +156,8 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
-      Policies:
-        - PolicyName: inject-gateway-client-secrets
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action: secretsmanager:GetSecretValue
-                Resource:
-                  Fn::ImportValue: !Sub ${FoundationStackName}-GatewayClientSecretsArn
 
-  # Used by the agent itself. Least privilege for what the agent calls.
+  # Used by the listener itself: the two queues, the case table, and the agent runtime only.
   TaskRole:
     Type: AWS::IAM::Role
     Properties:
@@ -190,32 +174,10 @@ Resources:
               StringEquals:
                 aws:SourceAccount: !Ref AWS::AccountId
       Policies:
-        - PolicyName: inquiry-agent
+        - PolicyName: inquiry-listener
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
-              - Sid: InvokeModel
-                Effect: Allow
-                Action: bedrock:InvokeModel
-                Resource:
-                  # A cross-Region inference profile may route to the model in any US Region.
-                  - arn:aws:bedrock:*::foundation-model/anthropic.*
-                  - !Sub arn:aws:bedrock:*:${AWS::AccountId}:inference-profile/us.anthropic.*
-              - Sid: ApplyGuardrail
-                Effect: Allow
-                Action: bedrock:ApplyGuardrail
-                Resource: !Ref GuardrailArn
-              - Sid: UseKnowledgeBase
-                Effect: Allow
-                Action:
-                  - bedrock:Retrieve
-                  - bedrock:IngestKnowledgeBaseDocuments
-                  # The ballerinax/ai.aws.bedrock client checks the knowledge base and data
-                  # source at startup, and polls document status after ingesting.
-                  - bedrock:GetKnowledgeBase
-                  - bedrock:GetDataSource
-                  - bedrock:GetKnowledgeBaseDocuments
-                Resource: !Sub arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/${KnowledgeBaseId}
               - Sid: ConsumeQueues
                 Effect: Allow
                 Action:
@@ -231,6 +193,12 @@ Resources:
                 Action: [dynamodb:GetItem, dynamodb:UpdateItem]
                 Resource:
                   Fn::ImportValue: !Sub ${FoundationStackName}-CaseTableArn
+              # TODO(verify): whether InvokeAgentRuntime also needs the endpoint ARN
+              # (<runtime ARN>/runtime-endpoint/DEFAULT) as a resource.
+              - Sid: InvokeAgent
+                Effect: Allow
+                Action: bedrock-agentcore:InvokeAgentRuntime
+                Resource: !Ref AgentRuntimeArn
 
   # ---------------------------------------------------------------------------
   # Task definition and service
@@ -238,7 +206,7 @@ Resources:
   TaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
-      Family: !Sub ${ProjectName}-inquiry-agent
+      Family: !Sub ${ProjectName}-inquiry-listener
       Cpu: !Ref TaskCpu
       Memory: !Ref TaskMemory
       NetworkMode: awsvpc
@@ -249,11 +217,11 @@ Resources:
       ExecutionRoleArn: !GetAtt ExecutionRole.Arn
       TaskRoleArn: !GetAtt TaskRole.Arn
       ContainerDefinitions:
-        - Name: inquiry-agent
-          Image: !Sub ${AgentRepository.RepositoryUri}:${ImageTag}
+        - Name: inquiry-listener
+          Image: !Sub ${ListenerRepository.RepositoryUri}:${ImageTag}
           Essential: true
-          # Time to finish the current message after SIGTERM. An unfinished investigation is
-          # picked up again after the visibility timeout.
+          # Time to finish after SIGTERM. Agent calls still open are abandoned; their messages
+          # become visible again after the visibility timeout and are retried.
           StopTimeout: 120
           Environment:
             - Name: BAL_CONFIG_DATA
@@ -262,51 +230,27 @@ Resources:
                   awsRegion = "${AWS::Region}"
                   jobQueueUrl = "${JobQueueUrl}"
                   decisionQueueUrl = "${DecisionQueueUrl}"
-                  modelId = "${ModelId}"
-                  guardrailId = "${GuardrailId}"
-                  guardrailVersion = "${GuardrailVersion}"
-                  knowledgeBaseId = "${KnowledgeBaseId}"
-                  customDataSourceId = "${CustomDataSourceId}"
                   caseTable = "${CaseTableName}"
-                  gatewayUrl = "${GatewayUrl}"
-                  tokenUrl = "${CognitoTokenUrl}"
-                  investigatorClientId = "${InvestigatorClientId}"
-                  applierClientId = "${ApplierClientId}"
+                  agentRuntimeArn = "${AgentRuntimeArn}"
+                  agentRuntimeQualifier = "${AgentRuntimeQualifier}"
                 - JobQueueUrl:
                     Fn::ImportValue: !Sub ${FoundationStackName}-JobQueueUrl
                   DecisionQueueUrl:
                     Fn::ImportValue: !Sub ${FoundationStackName}-DecisionQueueUrl
                   CaseTableName:
                     Fn::ImportValue: !Sub ${FoundationStackName}-CaseTableName
-                  CognitoTokenUrl:
-                    Fn::ImportValue: !Sub ${FoundationStackName}-CognitoTokenUrl
-                  InvestigatorClientId:
-                    Fn::ImportValue: !Sub ${FoundationStackName}-InvestigatorClientId
-                  ApplierClientId:
-                    Fn::ImportValue: !Sub ${FoundationStackName}-ApplierClientId
-          Secrets:
-            - Name: INVESTIGATOR_CLIENT_SECRET
-              ValueFrom: !Sub
-                - "${SecretArn}:investigatorClientSecret::"
-                - SecretArn:
-                    Fn::ImportValue: !Sub ${FoundationStackName}-GatewayClientSecretsArn
-            - Name: APPLIER_CLIENT_SECRET
-              ValueFrom: !Sub
-                - "${SecretArn}:applierClientSecret::"
-                - SecretArn:
-                    Fn::ImportValue: !Sub ${FoundationStackName}-GatewayClientSecretsArn
           LogConfiguration:
             LogDriver: awslogs
             Options:
-              awslogs-group: !Ref AgentLogGroup
+              awslogs-group: !Ref ListenerLogGroup
               awslogs-region: !Ref AWS::Region
-              awslogs-stream-prefix: agent
+              awslogs-stream-prefix: listener
 
   Service:
     Type: AWS::ECS::Service
     DependsOn: DefaultRoute
     Properties:
-      ServiceName: inquiry-agent
+      ServiceName: inquiry-listener
       Cluster: !Ref Cluster
       TaskDefinition: !Ref TaskDefinition
       DesiredCount: !Ref DesiredCount
@@ -315,7 +259,9 @@ Resources:
         AwsvpcConfiguration:
           AssignPublicIp: ENABLED
           Subnets: [!Ref PublicSubnetA, !Ref PublicSubnetB]
-          SecurityGroups: [!Ref AgentSecurityGroup]
+          SecurityGroups: [!Ref ListenerSecurityGroup]
+      # During a deployment the old and new task overlap briefly. That is safe: every status
+      # change is a conditional update, so two listeners never handle the same case twice.
       DeploymentConfiguration:
         MinimumHealthyPercent: 100
         MaximumPercent: 200
@@ -325,11 +271,11 @@ Resources:
       PropagateTags: SERVICE
 
 Outputs:
-  AgentRepositoryUri:
-    Value: !GetAtt AgentRepository.RepositoryUri
+  ListenerRepositoryUri:
+    Value: !GetAtt ListenerRepository.RepositoryUri
   ClusterName:
     Value: !Ref Cluster
   ServiceName:
     Value: !GetAtt Service.Name
-  AgentLogGroupName:
-    Value: !Ref AgentLogGroup
+  ListenerLogGroupName:
+    Value: !Ref ListenerLogGroup

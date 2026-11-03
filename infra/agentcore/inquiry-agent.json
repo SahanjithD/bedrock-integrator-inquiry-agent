@@ -1,0 +1,11 @@
+{
+  "agentRuntimeName": "",
+  "description": "Customer inquiry agent (WSO2 Integrator), called synchronously by the inquiry listener",
+  "agentRuntimeArtifact": {
+    "containerConfiguration": {"containerUri": ""}
+  },
+  "roleArn": "",
+  "networkConfiguration": {"networkMode": "PUBLIC"},
+  "protocolConfiguration": {"serverProtocol": "HTTP"},
+  "environmentVariables": {"BAL_CONFIG_DATA": ""}
+}
