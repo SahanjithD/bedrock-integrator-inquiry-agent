@@ -124,6 +124,9 @@ Resources:
     Type: AWS::Cognito::UserPool
     Properties:
       UserPoolName: !Sub ${ProjectName}-machine-clients
+      # Set explicitly as well as through the stack tags: the deployer policy matches on it.
+      UserPoolTags:
+        Project: !Ref ProjectName
       AdminCreateUserConfig:
         AllowAdminCreateUserOnly: true
 

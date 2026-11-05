@@ -1,0 +1,104 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CreateTaggedGuardrailAndKnowledgeBase",
+      "Effect": "Allow",
+      "Action": ["bedrock:CreateGuardrail", "bedrock:CreateKnowledgeBase"],
+      "Resource": "*",
+      "Condition": {"StringEquals": {"aws:RequestTag/Project": "__PREFIX__"}}
+    },
+    {
+      "Sid": "OwnGuardrailAndKnowledgeBase",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock:GetGuardrail", "bedrock:UpdateGuardrail", "bedrock:DeleteGuardrail", "bedrock:CreateGuardrailVersion",
+        "bedrock:GetKnowledgeBase", "bedrock:UpdateKnowledgeBase", "bedrock:DeleteKnowledgeBase",
+        "bedrock:CreateDataSource", "bedrock:GetDataSource", "bedrock:UpdateDataSource", "bedrock:DeleteDataSource",
+        "bedrock:ListDataSources", "bedrock:StartIngestionJob", "bedrock:GetIngestionJob", "bedrock:ListIngestionJobs",
+        "bedrock:IngestKnowledgeBaseDocuments", "bedrock:GetKnowledgeBaseDocuments", "bedrock:Retrieve",
+        "bedrock:TagResource", "bedrock:UntagResource", "bedrock:ListTagsForResource"
+      ],
+      "Resource": [
+        "arn:aws:bedrock:__REGION__:__ACCOUNT_ID__:guardrail/*",
+        "arn:aws:bedrock:__REGION__:__ACCOUNT_ID__:knowledge-base/*"
+      ],
+      "Condition": {"StringEquals": {"aws:ResourceTag/Project": "__PREFIX__"}}
+    },
+    {
+      "Sid": "BedrockList",
+      "Effect": "Allow",
+      "Action": ["bedrock:ListGuardrails", "bedrock:ListKnowledgeBases"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "PreflightModelCheck",
+      "Effect": "Allow",
+      "Action": "bedrock:InvokeModel",
+      "Resource": [
+        "arn:aws:bedrock:*::foundation-model/anthropic.*",
+        "arn:aws:bedrock:*:__ACCOUNT_ID__:inference-profile/us.anthropic.*"
+      ]
+    },
+    {
+      "Sid": "CreateTaggedAgentCoreResources",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock-agentcore:CreateAgentRuntime", "bedrock-agentcore:CreateGateway",
+        "bedrock-agentcore:CreateOauth2CredentialProvider"
+      ],
+      "Resource": "*",
+      "Condition": {"StringEquals": {"aws:RequestTag/Project": "__PREFIX__"}}
+    },
+    {
+      "Sid": "OwnAgentCoreResources",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock-agentcore:GetAgentRuntime", "bedrock-agentcore:UpdateAgentRuntime", "bedrock-agentcore:DeleteAgentRuntime",
+        "bedrock-agentcore:InvokeAgentRuntime", "bedrock-agentcore:ListAgentRuntimeEndpoints",
+        "bedrock-agentcore:GetGateway", "bedrock-agentcore:UpdateGateway", "bedrock-agentcore:DeleteGateway",
+        "bedrock-agentcore:CreateGatewayTarget", "bedrock-agentcore:GetGatewayTarget", "bedrock-agentcore:DeleteGatewayTarget",
+        "bedrock-agentcore:ListGatewayTargets",
+        "bedrock-agentcore:GetOauth2CredentialProvider", "bedrock-agentcore:DeleteOauth2CredentialProvider",
+        "bedrock-agentcore:TagResource", "bedrock-agentcore:UntagResource", "bedrock-agentcore:ListTagsForResource"
+      ],
+      "Resource": [
+        "arn:aws:bedrock-agentcore:__REGION__:__ACCOUNT_ID__:runtime/__RUNTIME_PREFIX___*",
+        "arn:aws:bedrock-agentcore:__REGION__:__ACCOUNT_ID__:gateway/__PREFIX__-gateway-*",
+        "arn:aws:bedrock-agentcore:__REGION__:__ACCOUNT_ID__:token-vault/default/oauth2credentialprovider/__PREFIX__-runtime-oauth"
+      ]
+    },
+    {
+      "Sid": "AgentCoreIdentityForOwnResources",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock-agentcore:GetTokenVault",
+        "bedrock-agentcore:CreateWorkloadIdentity", "bedrock-agentcore:GetWorkloadIdentity", "bedrock-agentcore:DeleteWorkloadIdentity"
+      ],
+      "Resource": [
+        "arn:aws:bedrock-agentcore:__REGION__:__ACCOUNT_ID__:token-vault/default",
+        "arn:aws:bedrock-agentcore:__REGION__:__ACCOUNT_ID__:workload-identity-directory/default",
+        "arn:aws:bedrock-agentcore:__REGION__:__ACCOUNT_ID__:workload-identity-directory/default/workload-identity/__PREFIX__-*",
+        "arn:aws:bedrock-agentcore:__REGION__:__ACCOUNT_ID__:workload-identity-directory/default/workload-identity/__RUNTIME_PREFIX___*"
+      ]
+    },
+    {
+      "Sid": "CredentialProviderSecret",
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:CreateSecret", "secretsmanager:DeleteSecret", "secretsmanager:DescribeSecret",
+        "secretsmanager:PutSecretValue", "secretsmanager:TagResource"
+      ],
+      "Resource": "arn:aws:secretsmanager:__REGION__:__ACCOUNT_ID__:secret:bedrock-agentcore-identity!default/oauth2/__PREFIX__-runtime-oauth*"
+    },
+    {
+      "Sid": "AgentCoreList",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock-agentcore:ListAgentRuntimes", "bedrock-agentcore:ListGateways",
+        "bedrock-agentcore:ListOauth2CredentialProviders"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

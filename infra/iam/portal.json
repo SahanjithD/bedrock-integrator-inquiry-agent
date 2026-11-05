@@ -1,0 +1,29 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CaseTable",
+      "Effect": "Allow",
+      "Action": ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:Scan"],
+      "Resource": "arn:aws:dynamodb:__REGION__:__ACCOUNT_ID__:table/__PREFIX__-cases"
+    },
+    {
+      "Sid": "SendJobsAndDecisions",
+      "Effect": "Allow",
+      "Action": "sqs:SendMessage",
+      "Resource": [
+        "arn:aws:sqs:__REGION__:__ACCOUNT_ID__:__PREFIX__-jobs",
+        "arn:aws:sqs:__REGION__:__ACCOUNT_ID__:__PREFIX__-decisions"
+      ]
+    },
+    {
+      "Sid": "PeekDeadLetterQueues",
+      "Effect": "Allow",
+      "Action": "sqs:ReceiveMessage",
+      "Resource": [
+        "arn:aws:sqs:__REGION__:__ACCOUNT_ID__:__PREFIX__-jobs-dlq",
+        "arn:aws:sqs:__REGION__:__ACCOUNT_ID__:__PREFIX__-decisions-dlq"
+      ]
+    }
+  ]
+}

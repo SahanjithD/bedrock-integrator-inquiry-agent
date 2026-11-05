@@ -1,0 +1,119 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "OwnStacks",
+      "Effect": "Allow",
+      "Action": [
+        "cloudformation:CreateStack", "cloudformation:UpdateStack", "cloudformation:DeleteStack",
+        "cloudformation:DescribeStacks", "cloudformation:DescribeStackEvents", "cloudformation:DescribeStackResource",
+        "cloudformation:DescribeStackResources", "cloudformation:ListStackResources", "cloudformation:GetTemplate",
+        "cloudformation:CreateChangeSet", "cloudformation:DescribeChangeSet", "cloudformation:ExecuteChangeSet",
+        "cloudformation:DeleteChangeSet", "cloudformation:ListChangeSets",
+        "cloudformation:TagResource", "cloudformation:UntagResource"
+      ],
+      "Resource": "arn:aws:cloudformation:__REGION__:__ACCOUNT_ID__:stack/__PREFIX__-*/*"
+    },
+    {
+      "Sid": "CloudFormationRead",
+      "Effect": "Allow",
+      "Action": ["cloudformation:ListStacks", "cloudformation:ValidateTemplate", "cloudformation:GetTemplateSummary", "cloudformation:ListExports", "cloudformation:ListImports"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "OwnQueues",
+      "Effect": "Allow",
+      "Action": [
+        "sqs:CreateQueue", "sqs:DeleteQueue", "sqs:GetQueueAttributes", "sqs:SetQueueAttributes", "sqs:GetQueueUrl",
+        "sqs:TagQueue", "sqs:UntagQueue", "sqs:ListQueueTags"
+      ],
+      "Resource": "arn:aws:sqs:__REGION__:__ACCOUNT_ID__:__PREFIX__-*"
+    },
+    {
+      "Sid": "OwnCaseTable",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:CreateTable", "dynamodb:DeleteTable", "dynamodb:DescribeTable", "dynamodb:UpdateTable",
+        "dynamodb:DescribeContinuousBackups", "dynamodb:UpdateContinuousBackups", "dynamodb:DescribeTimeToLive",
+        "dynamodb:TagResource", "dynamodb:UntagResource", "dynamodb:ListTagsOfResource"
+      ],
+      "Resource": "arn:aws:dynamodb:__REGION__:__ACCOUNT_ID__:table/__PREFIX__-*"
+    },
+    {
+      "Sid": "OwnBucket",
+      "Effect": "Allow",
+      "Action": [
+        "s3:CreateBucket", "s3:DeleteBucket", "s3:ListBucket", "s3:ListBucketVersions", "s3:GetBucketLocation",
+        "s3:PutBucketPolicy", "s3:GetBucketPolicy", "s3:DeleteBucketPolicy",
+        "s3:PutEncryptionConfiguration", "s3:GetEncryptionConfiguration",
+        "s3:PutBucketPublicAccessBlock", "s3:GetBucketPublicAccessBlock",
+        "s3:PutBucketOwnershipControls", "s3:GetBucketOwnershipControls",
+        "s3:PutBucketVersioning", "s3:GetBucketVersioning", "s3:PutBucketTagging", "s3:GetBucketTagging"
+      ],
+      "Resource": "arn:aws:s3:::__PREFIX__-knowledge-__ACCOUNT_ID__-__REGION__"
+    },
+    {
+      "Sid": "OwnBucketObjects",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject", "s3:DeleteObjectVersion"],
+      "Resource": "arn:aws:s3:::__PREFIX__-knowledge-__ACCOUNT_ID__-__REGION__/*"
+    },
+    {
+      "Sid": "OwnSecret",
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:CreateSecret", "secretsmanager:DeleteSecret", "secretsmanager:DescribeSecret",
+        "secretsmanager:GetSecretValue", "secretsmanager:PutSecretValue", "secretsmanager:UpdateSecret",
+        "secretsmanager:TagResource", "secretsmanager:UntagResource", "secretsmanager:GetResourcePolicy"
+      ],
+      "Resource": "arn:aws:secretsmanager:__REGION__:__ACCOUNT_ID__:secret:__PREFIX__/*"
+    },
+    {
+      "Sid": "CreateTaggedUserPool",
+      "Effect": "Allow",
+      "Action": "cognito-idp:CreateUserPool",
+      "Resource": "*",
+      "Condition": {"StringEquals": {"aws:RequestTag/Project": "__PREFIX__"}}
+    },
+    {
+      "Sid": "OwnUserPool",
+      "Effect": "Allow",
+      "Action": [
+        "cognito-idp:DescribeUserPool", "cognito-idp:UpdateUserPool", "cognito-idp:DeleteUserPool",
+        "cognito-idp:CreateUserPoolDomain", "cognito-idp:DeleteUserPoolDomain",
+        "cognito-idp:CreateResourceServer", "cognito-idp:UpdateResourceServer", "cognito-idp:DeleteResourceServer",
+        "cognito-idp:DescribeResourceServer", "cognito-idp:CreateUserPoolClient", "cognito-idp:UpdateUserPoolClient",
+        "cognito-idp:DeleteUserPoolClient", "cognito-idp:DescribeUserPoolClient",
+        "cognito-idp:GetUserPoolMfaConfig", "cognito-idp:SetUserPoolMfaConfig",
+        "cognito-idp:TagResource", "cognito-idp:UntagResource", "cognito-idp:ListTagsForResource"
+      ],
+      "Resource": "arn:aws:cognito-idp:__REGION__:__ACCOUNT_ID__:userpool/*",
+      "Condition": {"StringEquals": {"aws:ResourceTag/Project": "__PREFIX__"}}
+    },
+    {
+      "Sid": "CheckCognitoDomain",
+      "Effect": "Allow",
+      "Action": "cognito-idp:DescribeUserPoolDomain",
+      "Resource": "*"
+    },
+    {
+      "Sid": "OwnLogGroups",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup", "logs:DeleteLogGroup", "logs:PutRetentionPolicy", "logs:DeleteRetentionPolicy",
+        "logs:TagResource", "logs:UntagResource", "logs:TagLogGroup", "logs:ListTagsForResource", "logs:ListTagsLogGroup",
+        "logs:DescribeLogStreams", "logs:FilterLogEvents", "logs:GetLogEvents", "logs:StartLiveTail"
+      ],
+      "Resource": [
+        "arn:aws:logs:__REGION__:__ACCOUNT_ID__:log-group:/ecs/__PREFIX__/*",
+        "arn:aws:logs:__REGION__:__ACCOUNT_ID__:log-group:/aws/bedrock-agentcore/runtimes/__RUNTIME_PREFIX___*"
+      ]
+    },
+    {
+      "Sid": "ListLogGroups",
+      "Effect": "Allow",
+      "Action": "logs:DescribeLogGroups",
+      "Resource": "*"
+    }
+  ]
+}
