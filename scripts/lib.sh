@@ -27,6 +27,10 @@ log() { printf '\033[1;34m[%s]\033[0m %s\n' "$(date +%H:%M:%S)" "$*"; }
 warn() { printf '\033[1;33m[%s] %s\033[0m\n' "$(date +%H:%M:%S)" "$*" >&2; }
 die() { printf '\033[1;31m[%s] %s\033[0m\n' "$(date +%H:%M:%S)" "$*" >&2; exit 1; }
 
+# Case helpers. macOS ships bash 3.2, which has no ${value^} or ${value,,}.
+capitalize() { printf '%s%s' "$(printf '%s' "${1:0:1}" | tr '[:lower:]' '[:upper:]')" "${1:1}"; }
+lowercase() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+
 # ---------------------------------------------------------------------------
 # Safety checks on the settings, so a run in a shared account only ever touches your own
 # resources and tags all of them.

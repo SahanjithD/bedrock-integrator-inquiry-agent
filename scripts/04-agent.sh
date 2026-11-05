@@ -31,7 +31,7 @@ create_credential_provider() {
             --query credentialProviderArn --output text)"
         return 0
     fi
-    local name="${PROJECT_NAME}-${role,,}" client_secret request result
+    local name="${PROJECT_NAME}-$(lowercase "${role}")" client_secret request result
     log "Creating credential provider ${name}"
     client_secret="$(aws cognito-idp describe-user-pool-client \
         --user-pool-id "${UserPoolId}" --client-id "${client_id}" \

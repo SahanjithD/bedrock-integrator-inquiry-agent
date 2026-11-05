@@ -26,10 +26,10 @@ need McpServerRuntimeRoleArn GatewayRoleArn ReservationMcpRepositoryUri LoyaltyM
 tag="$(image_tag)"
 ecr_login "${ReservationMcpRepositoryUri%%/*}"
 for server in reservation loyalty payment; do
-    repo_key="${server^}McpRepositoryUri"
+    repo_key="$(capitalize "${server}")McpRepositoryUri"
     image="${!repo_key}:${tag}"
     build_and_push "${image}" "${REPO_ROOT}/mcp-servers/${server}"
-    save "${server^}McpImage" "${image}"
+    save "$(capitalize "${server}")McpImage" "${image}"
 done
 
 # ---------------------------------------------------------------------------
@@ -39,11 +39,11 @@ runtime_name_prefix="${PROJECT_NAME//-/_}"
 
 deploy_mcp_runtime() {
     local server="$1" image="$2"
-    local id_key="${server^}McpRuntimeId" arn_key="${server^}McpRuntimeArn"
+    local id_key="$(capitalize "${server}")McpRuntimeId" arn_key="$(capitalize "${server}")McpRuntimeArn"
     local request
     request="$(jq \
         --arg name "${runtime_name_prefix}_${server}_mcp" \
-        --arg description "${server^} tools for the inquiry agent (synthetic data)" \
+        --arg description "$(capitalize "${server}") tools for the inquiry agent (synthetic data)" \
         --arg image "${image}" \
         --arg role "${McpServerRuntimeRoleArn}" \
         --arg discovery "${CognitoDiscoveryUrl}" \
@@ -138,7 +138,7 @@ wait_for "Gateway ${GatewayId}" "READY" "FAILED" \
 
 add_target() {
     local name="$1" runtime_arn="$2"
-    local key="${name^}TargetId"
+    local key="$(capitalize "${name}")TargetId"
     if [[ -n "${!key:-}" ]]; then
         log "Target ${name} already exists (${!key})"
         return 0
@@ -150,7 +150,7 @@ add_target() {
     request="$(jq \
         --arg gateway "${GatewayId}" \
         --arg name "${name}" \
-        --arg description "${name^} MCP server on AgentCore Runtime" \
+        --arg description "$(capitalize "${name}") MCP server on AgentCore Runtime" \
         --arg endpoint "${endpoint}" \
         --arg provider "${OauthProviderArn}" \
         '.gatewayIdentifier = $gateway

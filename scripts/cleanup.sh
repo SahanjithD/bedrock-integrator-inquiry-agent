@@ -49,7 +49,7 @@ fi
 for role in Investigator Applier; do
     key="${role}ProviderName"
     if [[ -n "${!key:-}" ]]; then
-        log "Deleting the ${role,,} credential provider"
+        log "Deleting the $(lowercase "${role}") credential provider"
         try aws bedrock-agentcore-control delete-oauth2-credential-provider --name "${!key}"
         forget "${key}"; forget "${role}ProviderSecretArn"
     fi
@@ -80,7 +80,7 @@ fi
 for server in Reservation Loyalty Payment; do
     key="${server}McpRuntimeId"
     if [[ -n "${!key:-}" ]]; then
-        log "Deleting the ${server,,} MCP runtime"
+        log "Deleting the $(lowercase "${server}") MCP runtime"
         try aws bedrock-agentcore-control delete-agent-runtime --agent-runtime-id "${!key}"
         forget "${key}"; forget "${server}McpRuntimeArn"; forget "${server}McpImage"
     fi
