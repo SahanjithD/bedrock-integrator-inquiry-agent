@@ -34,9 +34,9 @@ the checking to an agent and keeps the correction with a person:
 ![Architecture: inquiry listener on Amazon ECS, inquiry agent on AgentCore Runtime](docs/figure-2-architecture.png)
 
 - **Support portal:** representatives work cases in a support portal. In this sample a small
-  command-line console (`scripts/console.py`) stands in for it, and each case is an item in an
-  Amazon DynamoDB table. In production, this record would be the ticket in the team's support
-  system.
+  WSO2 Integrator service (`support-portal/`) stands in for it. You run it on your machine; it
+  serves a web page and a REST API. Each case is an item in an Amazon DynamoDB table. In
+  production, this record would be the ticket in the team's support system.
 - **Queues:** the portal sends investigation jobs to an Amazon SQS standard queue, and approve
   or reject decisions to a second queue. Each queue has a dead-letter queue (DLQ), used after
   three failed receives.
@@ -90,12 +90,13 @@ built here. If you add one, list its read-only tools in `inquiry-agent/modules/c
 
 | Path | Contents |
 | --- | --- |
+| [`support-portal/`](support-portal/) | WSO2 Integrator (Ballerina) support portal you run locally: a web page and REST API to create cases, review findings, and approve or reject |
 | [`inquiry-listener/`](inquiry-listener/) | WSO2 Integrator (Ballerina) SQS listener for Amazon ECS: owns the case status and calls the agent |
 | [`inquiry-agent/`](inquiry-agent/) | WSO2 Integrator (Ballerina) inquiry agent for AgentCore Runtime: synchronous investigate and apply actions |
 | [`mcp-servers/`](mcp-servers/) | Reservation, loyalty and payment MCP servers (WSO2 Integrator) for AgentCore Runtime, with bundled synthetic data |
 | [`data/`](data/) | Runbooks, policies, seed resolved cases and the three sample inquiries |
 | [`infra/`](infra/) | CloudFormation templates (foundation, knowledge, MCP servers, agent runtime, listener on ECS) and request templates for the knowledge base and AgentCore |
-| [`scripts/`](scripts/) | Deploy steps, demo, clean-up and the support console (`console.py`) |
+| [`scripts/`](scripts/) | Deploy steps, portal configuration, demo and clean-up (Bash, AWS CLI, `jq`, `curl`) |
 | [`docs/`](docs/) | Architecture and security notes, and the architecture figure |
 
 ## Prerequisites
@@ -107,12 +108,17 @@ built here. If you add one, list its read-only tools in `inquiry-agent/modules/c
 - Permissions to create the resources listed in [`infra/README.md`](infra/README.md),
   including IAM roles, a VPC and an ECS cluster.
 - A recent AWS CLI v2 with the `bedrock-agent` and `bedrock-agentcore-control` commands.
-- Docker with `buildx` and ARM64 support (QEMU emulation works on x86 machines). All five
-  images are ARM64: the agent and MCP servers for AgentCore Runtime, and the listener for
-  Graviton Fargate.
-- `jq`, and Python 3.11 or later with `boto3` (`pip install -r scripts/requirements.txt`).
-- Optional, for local builds and tests: [WSO2 Integrator](https://wso2.com/integrator/) or
-  Ballerina 2201.14.0.
+- Docker with Buildx and ARM64 support (QEMU emulation works on x86 machines). All five images
+  are ARM64: the agent and MCP servers for AgentCore Runtime, and the listener for Graviton
+  Fargate.
+- `jq`, `curl` and Git.
+- [WSO2 Integrator](https://wso2.com/integrator/) 5.0.0 or later (Ballerina 2201.14.0), to run
+  the support portal and to build and test the packages locally.
+- AWS credentials for the support portal, which runs on your machine. They need:
+  - `dynamodb:GetItem`, `dynamodb:PutItem`, `dynamodb:UpdateItem` and `dynamodb:Scan` on the
+    case table,
+  - `sqs:SendMessage` on the jobs and decisions queues,
+  - `sqs:ReceiveMessage` on the two dead-letter queues (for `GET /failures`).
 
 ## Deploy
 
@@ -122,14 +128,9 @@ built here. If you add one, list its read-only tools in `inquiry-agent/modules/c
    cp scripts/env.example.sh scripts/env.sh
    ```
 
-2. Install the console's dependency.
-
-   ```bash
-   pip install -r scripts/requirements.txt
-   ```
-
-3. Run the deploy script. It runs steps 01 to 05. Each step can also be run on its own, and
-   saves what it creates to `.deploy/outputs.env`.
+2. Run the deploy script. It runs steps 01 to 05 and then writes the support portal's
+   `Config.toml` (`portal-config.sh`). Each step can also be run on its own, and saves what it
+   creates to `.deploy/outputs.env`.
 
    ```bash
    ./scripts/deploy.sh
@@ -142,7 +143,8 @@ built here. If you add one, list its read-only tools in `inquiry-agent/modules/c
    | 3 | `03-mcp-servers.sh` | Three ARM64 MCP server images, their AgentCore runtimes, the gateway's outbound credential provider, the gateway and its targets |
    | 4 | `04-agent.sh` | The agent's investigator and applier credential providers, the ARM64 agent image and the inquiry agent runtime (`agent-runtime.yaml`, `inquiry-agent.json`) |
    | 5 | `05-listener.sh` | Listener image and the ECS stack (`listener-ecs.yaml`) running one listener task |
-   | 6 | `06-demo.sh` | Not part of `deploy.sh`: creates the three sample cases and waits for their investigations |
+   | | `portal-config.sh` | `support-portal/Config.toml`, from the deploy outputs |
+   | 6 | `06-demo.sh` | Not part of `deploy.sh`: creates the three sample cases through the running portal and waits for their investigations |
 
 Some AgentCore and managed knowledge base requests are marked `TODO(verify)` because those
 APIs are new. If a step fails, check the request template it uses in `infra/` against the
@@ -158,22 +160,44 @@ The agent's logs are in CloudWatch under `/aws/bedrock-agentcore/runtimes/`.
 
 ## Try it
 
-Run the demo. It creates one case for each sample inquiry and waits until each investigation
-is saved:
+### Run the support portal
+
+```bash
+cd support-portal
+```
+
+```bash
+bal run
+```
+
+Open http://localhost:9090. You can also open `support-portal/` in WSO2 Integrator and choose
+**Run**. The portal uses your default AWS credentials and the `Config.toml` that
+`deploy.sh` wrote. Run `./scripts/portal-config.sh` to write it again.
+
+On the page, choose one of the three sample inquiries, or type a guest's message. The case
+appears in the list as **Queued**, then **Investigating**. When the agent finishes, it shows as
+**Awaiting approval**. Select it to see the summary, root cause, evidence, proposed change and
+draft reply.
+
+To create all three samples at once and wait for their investigations, run the demo in a
+second terminal while the portal is running:
 
 ```bash
 ./scripts/06-demo.sh
 ```
 
-Or submit a single sample and watch it. `--rep` names the representative (default: your login
-name); it becomes the runtime user ID for the agent call.
+The same steps with `curl`:
 
 ```bash
-python3 scripts/console.py submit --sample 1 --rep rep-ana
+curl -s -X POST localhost:9090/cases -H 'content-type: application/json' -d '{"sample": 1}'
 ```
 
 ```bash
-python3 scripts/console.py show <caseId> --watch
+curl -s localhost:9090/cases | jq
+```
+
+```bash
+curl -s localhost:9090/cases/<caseId> | jq '{status, findings, proposedAction, draftReply}'
 ```
 
 ### 1. "I changed my booking dates in the app, but my confirmation still shows the old dates."
@@ -196,19 +220,20 @@ captured by the reconciliation job, although the folio shows no incidentals. Pro
 
 ### Approve and check the result
 
-Review the findings and draft reply, then approve (or `--reject`):
+Review the findings and draft reply, then choose **Approve** (or **Reject**) on the page. With
+`curl`:
 
 ```bash
-python3 scripts/console.py decide <caseId> --approve
+curl -s -X POST localhost:9090/cases/<caseId>/decision -H 'content-type: application/json' -d '{"decision": "approve"}'
 ```
 
-```bash
-python3 scripts/console.py show <caseId> --watch
-```
+The portal sends `{caseId, decision, proposalVersion}` to the decisions queue. Only a case that
+is awaiting approval accepts a decision.
 
-Check the result in two places on the case:
+Check the result in two places on the case, on the page or with
+`curl -s localhost:9090/cases/<caseId> | jq '{status, applyResult}'`:
 
-- the status is `APPLIED`, and
+- the status is **Applied** (`APPLIED`), and
 - the **write tool response** shows the receipt, for example a new confirmation number for
   version 3, the points adjustment for `S-90551`, or the refund of `CH-7003`.
 
@@ -216,14 +241,10 @@ Do not check by reading the records again through the tools. Each MCP server kee
 memory, and AgentCore Runtime runs each session in its own microVM, so a later read may not see
 the change.
 
-Other useful commands:
+Messages that ended up in a dead-letter queue are listed on the page, and with:
 
 ```bash
-python3 scripts/console.py list
-```
-
-```bash
-python3 scripts/console.py failures
+curl -s localhost:9090/failures | jq
 ```
 
 ## Clean up
@@ -281,7 +302,8 @@ Check its output for anything it reports as skipped.
   after an unexpected error while receiving messages. The task keeps running but idle. If the
   logs show a polling error, restart the ECS service (`aws ecs update-service --force-new-deployment`).
 - **A job that reaches its DLQ before it is claimed stays `QUEUED`;** one that fails after its
-  third claimed attempt is marked `FAILED`. Use `console.py failures` to see both.
+  third claimed attempt is marked `FAILED`. The portal's dead-letter list (`GET /failures`)
+  shows both.
 - **In-memory tool data:** each MCP server loads its synthetic data at startup and keeps
   changes in memory for its runtime session only. Verify fixes through the case status and the
   stored write-tool response.
@@ -289,9 +311,8 @@ Check its output for anything it reports as skipped.
   the agent (tool allow lists) and by separate Cognito clients, not by gateway policy.
 - **Guardrail scope:** personal data is masked in model output only; input is checked but not
   changed. Card security codes are blocked.
-- **Approver identity is not authenticated:** the case records who decided (`decidedBy`), but
-  the console takes it from `--rep` or your login name. A real support system would take it from
-  the signed-in user and enforce who may approve which change.
+- **No approver identity:** the portal has no sign-in and does not record who approved a change.
+  A real support system would.
 - **A failed or interrupted apply stops at `NEEDS_REVIEW`.** A person must check whether the
   change was made.
 - **Public subnet** for the listener task, public network mode for the runtimes, and AWS owned
