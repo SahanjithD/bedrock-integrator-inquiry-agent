@@ -13,20 +13,23 @@ The script reads `scripts/env.sh`, takes the account ID from your credentials (o
 
 | Policy | For | Allows |
 | --- | --- | --- |
-| `deployer-core.json` | whoever deploys and cleans up | CloudFormation stacks `<prefix>-*`, SQS queues `<prefix>-*`, the DynamoDB table, the knowledge bucket, the client-secret secret, the Cognito user pool tagged `Project=<prefix>`, and the sample's log groups |
+| `deployer-core.json` | whoever deploys and cleans up | CloudFormation stacks `<prefix>-*`, SQS queues `<prefix>-*`, the DynamoDB table, the knowledge bucket, the Cognito user pool tagged `Project=<prefix>`, and the sample's log groups |
 | `deployer-compute.json` | whoever deploys and cleans up | ECR repositories `<prefix>/*`, the ECS cluster `<prefix>`, IAM roles `<prefix>-*` (passed only to ECS, Bedrock and AgentCore), and VPC resources tagged `Project=<prefix>` |
-| `deployer-ai.json` | whoever deploys and cleans up | The guardrail and knowledge base tagged `Project=<prefix>`, AgentCore runtimes, gateway and OAuth provider named with the prefix, and a model call for the preflight check |
+| `deployer-ai.json` | whoever deploys and cleans up | The guardrail and knowledge base tagged `Project=<prefix>`; the AgentCore runtimes, gateway and the three OAuth credential providers (`<prefix>-runtime-oauth`, `-investigator`, `-applier`) and their secrets, named with the prefix; and a model call for the preflight check |
 | `portal.json` | whoever runs the support portal | `GetItem`, `PutItem`, `UpdateItem` and `Scan` on the case table, `SendMessage` on the two queues, and `ReceiveMessage` on the two DLQs |
 
 Each policy is below the 6,144-character limit for a managed policy.
 
 ## How the scoping works
 
-- **By name:** stacks, queues, the table, the bucket, the secret, repositories, the cluster, IAM
-  roles, log groups and AgentCore resources all carry the prefix in their name, so the policies
-  match on ARNs.
+- **By name:** stacks, queues, the table, the bucket, repositories, the cluster, IAM roles, log
+  groups and AgentCore resources (including the credential providers and the secrets AgentCore
+  Identity keeps for them) all carry the prefix in their name, so the policies match on ARNs.
+  Where CloudFormation needs a family of bucket settings, the S3 wildcards apply to this one
+  bucket only.
 - **By tag:** some resources get an ID instead of a name (the VPC and its subnets, the security
-  group, the Cognito user pool, the guardrail and the knowledge base). They can only be created
+  group, the Cognito user pool, the guardrail and the knowledge base). For the user pool, all
+  Cognito actions are allowed, but only on a pool tagged `Project=<prefix>`. They can only be created
   with `Project=<prefix>` in the request (`aws:RequestTag`), and changed or deleted only when
   they carry that tag (`aws:ResourceTag`). The scripts tag every stack with `Project=<prefix>`
   and your owner tag, and pass the same tags when they create AgentCore and knowledge base
