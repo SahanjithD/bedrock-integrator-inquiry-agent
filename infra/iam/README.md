@@ -42,8 +42,11 @@ Each policy is below the 6,144-character limit for a managed policy.
   `ecs:RegisterTaskDefinition` (tag condition only), creating the ECS service-linked role if
   the account does not have it yet, and `bedrock-agentcore:CreateAgentRuntimeEndpoint` on
   `runtime/*`. `CreateAgentRuntime` creates the runtime's `DEFAULT` endpoint and checks that
-  action against `runtime/*`, before the runtime has an ID, so a prefix cannot scope it. Reading,
-  updating and deleting endpoints stays limited to your own runtimes.
+  action against `runtime/*`, before the runtime has an ID, so a prefix cannot scope it. The same
+  holds for `CreateWorkloadIdentity`, allowed on any workload identity. Reading, updating and
+  deleting endpoints and workload identities stays limited to your own. `TagResource` is allowed
+  on any AgentCore resource only when the request sets `Project=<prefix>`, for tagging at
+  creation; AgentCore access is granted by name, not by that tag.
 
 ## Check before you rely on them
 

@@ -75,7 +75,8 @@
       "Action": [
         "bedrock-agentcore:CreateAgentRuntime",
         "bedrock-agentcore:CreateGateway",
-        "bedrock-agentcore:CreateOauth2CredentialProvider"
+        "bedrock-agentcore:CreateOauth2CredentialProvider",
+        "bedrock-agentcore:TagResource"
       ],
       "Resource": "*",
       "Condition": {
@@ -89,6 +90,15 @@
       "Effect": "Allow",
       "Action": "bedrock-agentcore:CreateAgentRuntimeEndpoint",
       "Resource": "arn:aws:bedrock-agentcore:__REGION__:__ACCOUNT_ID__:runtime/*"
+    },
+    {
+      "Sid": "CreateWorkloadIdentities",
+      "Effect": "Allow",
+      "Action": "bedrock-agentcore:CreateWorkloadIdentity",
+      "Resource": [
+        "arn:aws:bedrock-agentcore:__REGION__:__ACCOUNT_ID__:workload-identity-directory/default",
+        "arn:aws:bedrock-agentcore:__REGION__:__ACCOUNT_ID__:workload-identity-directory/default/workload-identity/*"
+      ]
     },
     {
       "Sid": "OwnAgentCoreResources",
