@@ -45,7 +45,8 @@ fi
     || die "Replace the OWNER_TAG_KEY and OWNER_TAG_VALUE placeholders in scripts/env.sh."
 [[ "${OWNER_TAG_KEY}" =~ ^[A-Za-z0-9_.:/=+@\ -]{1,128}$ && "${OWNER_TAG_KEY}" != aws:* ]] \
     || die "OWNER_TAG_KEY '${OWNER_TAG_KEY}' is not a valid tag key."
-[[ "${OWNER_TAG_VALUE}" =~ ^[A-Za-z0-9_.:/=+@\ -]{0,256}$ ]] \
+# The length is checked apart from the pattern: macOS allows at most {0,255} in a regex.
+[[ "${OWNER_TAG_VALUE}" =~ ^[A-Za-z0-9_.:/=+@\ -]*$ && ${#OWNER_TAG_VALUE} -le 256 ]] \
     || die "OWNER_TAG_VALUE '${OWNER_TAG_VALUE}' is not a valid tag value."
 [[ "${COGNITO_DOMAIN_PREFIX:-}" =~ ^[a-z0-9-]{3,63}$ && "${COGNITO_DOMAIN_PREFIX}" != *change-me ]] \
     || die "Set a unique COGNITO_DOMAIN_PREFIX in scripts/env.sh (lowercase letters, digits, hyphens)."
