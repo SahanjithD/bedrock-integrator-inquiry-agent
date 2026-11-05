@@ -15,6 +15,8 @@ public type InvestigationJob record {|
     map<string> context = {};
     # When the console submitted the job (ISO 8601)
     string submittedAt?;
+    # The representative who submitted the job. Sent to AgentCore Runtime as the runtime user ID
+    string requestedBy;
 |};
 
 # A representative's decision, as the console puts it on the decisions queue. It carries no
@@ -26,6 +28,9 @@ public type Decision record {|
     "APPROVED"|"REJECTED" decision;
     # The proposal version the representative reviewed
     int proposalVersion;
+    # The representative who decided. Sent to AgentCore Runtime as the runtime user ID, and
+    # recorded on the case
+    string decidedBy;
 |};
 
 # Case statuses. The DynamoDB item stands in for a ticket in the team's support system.

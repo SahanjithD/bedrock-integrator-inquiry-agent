@@ -6,6 +6,7 @@
 //   jobMessageId (S), attempts (N)                                      - investigation claim
 //   findings (S, JSON), proposedAction (S, JSON or "null"),
 //   draftReply (S), proposalVersion (N)                                 - investigation result
+//   decidedBy (S)                                                       - decision
 //   applyResult (S, JSON), failureReason (S), createdAt (S), updatedAt (S)
 
 import inquiry_listener.core;
@@ -113,15 +114,17 @@ isolated function markInvestigationFailed(string caseId, string reason) returns 
 #
 # + caseId - The case ID
 # + proposalVersion - The version the representative reviewed
+# + decidedBy - The representative who rejected it
 # + return - `true` if the case was rejected, `false` if the condition did not hold
-isolated function markRejected(string caseId, int proposalVersion) returns boolean|error {
+isolated function markRejected(string caseId, int proposalVersion, string decidedBy) returns boolean|error {
     return check conditionalUpdate(caseId,
-        "SET #status = :rejected, updatedAt = :now",
+        "SET #status = :rejected, decidedBy = :decidedBy, updatedAt = :now",
         "#status = :pending AND proposalVersion = :version",
         {
             ":rejected": {S: core:REJECTED},
             ":pending": {S: core:PENDING_APPROVAL},
-            ":version": {N: proposalVersion.toString()}
+            ":version": {N: proposalVersion.toString()},
+            ":decidedBy": {S: decidedBy}
         }) !is ();
 }
 
@@ -129,15 +132,17 @@ isolated function markRejected(string caseId, int proposalVersion) returns boole
 #
 # + caseId - The case ID
 # + proposalVersion - The version the representative approved
+# + decidedBy - The representative who approved it
 # + return - `true` if this call claimed the case, `false` if the condition did not hold
-isolated function claimForApply(string caseId, int proposalVersion) returns boolean|error {
+isolated function claimForApply(string caseId, int proposalVersion, string decidedBy) returns boolean|error {
     return check conditionalUpdate(caseId,
-        "SET #status = :applying, updatedAt = :now",
+        "SET #status = :applying, decidedBy = :decidedBy, updatedAt = :now",
         "#status = :pending AND proposalVersion = :version",
         {
             ":applying": {S: core:APPLYING},
             ":pending": {S: core:PENDING_APPROVAL},
-            ":version": {N: proposalVersion.toString()}
+            ":version": {N: proposalVersion.toString()},
+            ":decidedBy": {S: decidedBy}
         }) !is ();
 }
 
@@ -184,7 +189,8 @@ isolated function markNeedsReview(string caseId, string reason) returns boolean|
 isolated function conditionalUpdate(string caseId, string updateExpression, string conditionExpression,
         map<dynamodb:AttributeValue> values, boolean returnNewValues = false)
         returns map<dynamodb:AttributeValue>?|error {
-    map<dynamodb:AttributeValue> expressionValues = {...values, ":now": {S: time:utcToString(time:utcNow())}};
+    map<dynamodb:AttributeValue> expressionValues = {...values};
+    expressionValues[":now"] = {S: time:utcToString(time:utcNow())};
     dynamodb:ItemUpdateInput input = {
         TableName: caseTable,
         Key: {caseId: {S: caseId}},

@@ -36,9 +36,9 @@ listener sqs:Listener decisionListener2 = new (connection);
     // A received job stays hidden for longer than the longest agent call (15 minutes).
     config: {waitTime: 20, visibilityTimeout: jobVisibilitySeconds, pollInterval: 1}
 }
-service on jobListener1, jobListener2, jobListener3, jobListener4, jobListener5 {
+isolated service on jobListener1, jobListener2, jobListener3, jobListener4, jobListener5 {
 
-    remote function onMessage(sqs:Caller caller, sqs:Message message) returns error? {
+    isolated remote function onMessage(sqs:Caller caller, sqs:Message message) returns error? {
         string messageId = message?.messageId ?: "";
         error? result = processJob(message, messageId);
         if result is error {
@@ -49,7 +49,7 @@ service on jobListener1, jobListener2, jobListener3, jobListener4, jobListener5 
         check caller->delete();
     }
 
-    remote function onError(sqs:Error err) {
+    isolated remote function onError(sqs:Error err) {
         log:printError("Jobs queue listener error", err);
     }
 }
@@ -59,9 +59,9 @@ service on jobListener1, jobListener2, jobListener3, jobListener4, jobListener5 
     autoDelete: false,
     config: {waitTime: 20, visibilityTimeout: decisionVisibilitySeconds, pollInterval: 1}
 }
-service on decisionListener1, decisionListener2 {
+isolated service on decisionListener1, decisionListener2 {
 
-    remote function onMessage(sqs:Caller caller, sqs:Message message) returns error? {
+    isolated remote function onMessage(sqs:Caller caller, sqs:Message message) returns error? {
         error? result = processDecision(message);
         if result is error {
             log:printError("Decision failed; it will be retried", result, messageId = message?.messageId);
@@ -71,7 +71,7 @@ service on decisionListener1, decisionListener2 {
         check caller->delete();
     }
 
-    remote function onError(sqs:Error err) {
+    isolated remote function onError(sqs:Error err) {
         log:printError("Decisions queue listener error", err);
     }
 }

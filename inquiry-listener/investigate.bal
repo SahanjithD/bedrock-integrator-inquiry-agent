@@ -19,7 +19,7 @@ isolated function handleJob(core:InvestigationJob job, string messageId) returns
 
     map<json>|error answer = invokeAgent(
         {action: "investigate", caseId: job.caseId, job: job.toJson()},
-        core:sessionId(job.caseId, claim.attempts.toString()));
+        core:sessionId(job.caseId, claim.attempts.toString()), job.requestedBy);
     if answer is error {
         if claim.attempts >= maxAttempts {
             // Last attempt: the message goes to the DLQ after this receive.

@@ -18,6 +18,8 @@ public type InvestigationJob record {|
     map<string> context = {};
     # When the console submitted the job (ISO 8601)
     string submittedAt?;
+    # The representative who submitted the job (the runtime user ID)
+    string requestedBy?;
 |};
 
 # One fact the agent relied on.

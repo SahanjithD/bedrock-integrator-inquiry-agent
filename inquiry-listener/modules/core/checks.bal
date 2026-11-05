@@ -4,6 +4,8 @@ import ballerina/url;
 
 # AgentCore requires runtime session IDs of at least this many characters.
 public const int MIN_SESSION_ID_LENGTH = 33;
+# AgentCore Identity accepts user IDs of at most this many characters.
+public const int MAX_USER_ID_LENGTH = 128;
 
 # Checks an investigation job before any work starts.
 #
@@ -19,7 +21,7 @@ public isolated function checkJob(InvestigationJob job) returns string? {
     if job.inquiry.trim() == "" {
         return "inquiry is empty";
     }
-    return ();
+    return checkUserId("requestedBy", job.requestedBy);
 }
 
 # Checks a decision before any work starts.
@@ -32,6 +34,16 @@ public isolated function checkDecision(Decision decision) returns string? {
     }
     if decision.proposalVersion < 1 {
         return "proposalVersion must be 1 or higher";
+    }
+    return checkUserId("decidedBy", decision.decidedBy);
+}
+
+isolated function checkUserId(string fieldName, string value) returns string? {
+    if value.trim() == "" {
+        return string `${fieldName} is required`;
+    }
+    if value.length() > MAX_USER_ID_LENGTH {
+        return string `${fieldName} must be at most ${MAX_USER_ID_LENGTH} characters`;
     }
     return ();
 }

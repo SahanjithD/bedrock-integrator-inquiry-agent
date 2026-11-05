@@ -193,11 +193,15 @@ Resources:
                 Action: [dynamodb:GetItem, dynamodb:UpdateItem]
                 Resource:
                   Fn::ImportValue: !Sub ${FoundationStackName}-CaseTableArn
+              # Every call names the representative in the runtime user-ID header, which needs
+              # InvokeAgentRuntimeForUser as well.
               # TODO(verify): whether InvokeAgentRuntime also needs the endpoint ARN
               # (<runtime ARN>/runtime-endpoint/DEFAULT) as a resource.
               - Sid: InvokeAgent
                 Effect: Allow
-                Action: bedrock-agentcore:InvokeAgentRuntime
+                Action:
+                  - bedrock-agentcore:InvokeAgentRuntime
+                  - bedrock-agentcore:InvokeAgentRuntimeForUser
                 Resource: !Ref AgentRuntimeArn
 
   # ---------------------------------------------------------------------------

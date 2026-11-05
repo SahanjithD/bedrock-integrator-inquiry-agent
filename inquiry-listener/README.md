@@ -27,7 +27,8 @@ message to the jobs DLQ.
 
 ## Apply (decisions queue)
 
-The decision message carries only `caseId`, `decision` and `proposalVersion`.
+The decision message carries only `caseId`, `decision`, `proposalVersion` and `decidedBy` (the
+representative, stored on the case). It never carries an action.
 
 - **Rejected:** `PENDING_APPROVAL` → `REJECTED`, if the version is current.
 - **Approved:**
@@ -50,7 +51,12 @@ ECS task role:
 ```
 POST https://bedrock-agentcore.<region>.amazonaws.com/runtimes/<URL-encoded runtime ARN>/invocations?qualifier=DEFAULT
 X-Amzn-Bedrock-AgentCore-Runtime-Session-Id: <session ID>
+X-Amzn-Bedrock-AgentCore-Runtime-User-Id: <requestedBy or decidedBy>
 ```
+
+The user ID is the representative who sent the job or decision. AgentCore Runtime uses it to give
+the agent a workload access token, which the agent exchanges with AgentCore Identity for its
+gateway tokens. Sending it needs `bedrock-agentcore:InvokeAgentRuntimeForUser` on the task role.
 
 The call is synchronous. AgentCore Runtime ends it after 15 minutes, and the agent stops an
 investigation after 10. Both queues hide a received message for 20 minutes

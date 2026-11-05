@@ -18,9 +18,10 @@ import ballerina/log;
 isolated function handleDecision(core:Decision decision) returns error? {
     string caseId = decision.caseId;
     int version = decision.proposalVersion;
+    string decidedBy = decision.decidedBy;
 
     if decision.decision == "REJECTED" {
-        boolean rejected = check markRejected(caseId, version);
+        boolean rejected = check markRejected(caseId, version, decidedBy);
         if rejected {
             log:printInfo("Proposal rejected", caseId = caseId, proposalVersion = version);
         } else {
@@ -29,7 +30,7 @@ isolated function handleDecision(core:Decision decision) returns error? {
         return;
     }
 
-    boolean claimed = check claimForApply(caseId, version);
+    boolean claimed = check claimForApply(caseId, version, decidedBy);
     if !claimed {
         StoredCase current = check loadCase(caseId);
         if current.status == core:APPLYING {
@@ -58,7 +59,7 @@ isolated function handleDecision(core:Decision decision) returns error? {
         payload["findings"] = findings;
     }
 
-    map<json>|error answer = invokeAgent(payload, core:sessionId(caseId, string `apply-v${version}`));
+    map<json>|error answer = invokeAgent(payload, core:sessionId(caseId, string `apply-v${version}`), decidedBy);
     if answer is error {
         _ = check markNeedsReview(caseId, answer.message());
         log:printError("Applying the approved change failed; case marked NEEDS_REVIEW", answer, caseId = caseId);

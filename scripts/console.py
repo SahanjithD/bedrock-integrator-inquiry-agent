@@ -6,7 +6,7 @@ approve or reject the proposed change. The case item in DynamoDB stands in for t
 real support system would hold. The inquiry listener on Amazon ECS picks up jobs and decisions
 from the two SQS queues and calls the inquiry agent on AgentCore Runtime.
 
-    python3 scripts/console.py submit --sample 1
+    python3 scripts/console.py submit --sample 1 --rep rep-ana
     python3 scripts/console.py show CASE-20261103-1a2b3c --watch
     python3 scripts/console.py decide CASE-20261103-1a2b3c --approve
     python3 scripts/console.py list
@@ -15,9 +15,14 @@ from the two SQS queues and calls the inquiry agent on AgentCore Runtime.
 Settings come from .deploy/outputs.env (written by the deploy scripts). Environment
 variables CASE_TABLE, JOB_QUEUE_URL, DECISION_QUEUE_URL, JOB_DLQ_URL, DECISION_DLQ_URL and
 AWS_REGION override them.
+
+--rep names the representative (default: your login name). It travels with the job and the
+decision, the listener sends it to AgentCore Runtime as the runtime user ID, and the case
+records who decided. A real support system would take it from the signed-in user.
 """
 
 import argparse
+import getpass
 import json
 import os
 import secrets
@@ -116,6 +121,7 @@ def cmd_submit(args, settings):
         "channel": channel,
         "context": context,
         "submittedAt": now_iso(),
+        "requestedBy": args.rep,
     }
     dynamodb, sqs = clients(settings)
     dynamodb.put_item(
@@ -163,6 +169,8 @@ def print_case(case):
     if case.get("draftReply"):
         print("\nDraft reply")
         print(textwrap.indent(textwrap.fill(case["draftReply"], 96), "  "))
+    if case.get("decidedBy"):
+        print(f"\nDecided by: {case['decidedBy']}")
     if case.get("applyResult"):
         print("\nWrite tool response")
         print(textwrap.indent(json.dumps(case["applyResult"], indent=2), "  "))
@@ -203,8 +211,13 @@ def cmd_decide(args, settings):
     if case.get("status") != "PENDING_APPROVAL":
         sys.exit(f"Case {args.case_id} is {case.get('status')}; only PENDING_APPROVAL cases can be decided.")
     decision = "APPROVED" if args.approve else "REJECTED"
-    # Only these three fields travel. The apply action loads the stored proposal itself.
-    message = {"caseId": args.case_id, "decision": decision, "proposalVersion": case["proposalVersion"]}
+    # No action travels. The apply action loads the stored proposal itself.
+    message = {
+        "caseId": args.case_id,
+        "decision": decision,
+        "proposalVersion": case["proposalVersion"],
+        "decidedBy": args.rep,
+    }
     sqs.send_message(QueueUrl=settings["decision_queue"], MessageBody=json.dumps(message))
     print(f"Sent {decision} for {args.case_id} (proposal version {case['proposalVersion']}).")
     print(f"  Next: python3 scripts/console.py show {args.case_id} --watch")
@@ -234,8 +247,11 @@ def cmd_failures(_args, settings):
 def main():
     parser = argparse.ArgumentParser(description="Mock support console for the inquiry agent sample.")
     sub = parser.add_subparsers(dest="command", required=True)
+    rep = argparse.ArgumentParser(add_help=False)
+    rep.add_argument("--rep", default=getpass.getuser(),
+                     help="representative ID sent with the job or decision (default: your login name)")
 
-    submit = sub.add_parser("submit", help="send an investigation job")
+    submit = sub.add_parser("submit", parents=[rep], help="send an investigation job")
     submit.add_argument("--sample", type=int, help="sample inquiry from data/sample-inquiries.json (1-3)")
     submit.add_argument("--text", help="inquiry text, instead of --sample")
     submit.add_argument("--customer-ref", help="guest reference, e.g. G-10427")
@@ -254,7 +270,7 @@ def main():
     listing.add_argument("--limit", type=int, default=25)
     listing.set_defaults(func=cmd_list)
 
-    decide = sub.add_parser("decide", help="approve or reject the proposed change")
+    decide = sub.add_parser("decide", parents=[rep], help="approve or reject the proposed change")
     decide.add_argument("case_id")
     choice = decide.add_mutually_exclusive_group(required=True)
     choice.add_argument("--approve", action="store_true")
