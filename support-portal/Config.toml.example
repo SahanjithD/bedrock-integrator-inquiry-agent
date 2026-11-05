@@ -1,0 +1,15 @@
+# Copy to Config.toml, or run scripts/portal-config.sh to write it from the deploy outputs.
+# No secrets: the portal uses your default AWS credentials.
+
+port = 9090
+awsRegion = "us-east-1"
+
+caseTable = "inquiry-agent-cases"
+jobQueueUrl = "https://sqs.us-east-1.amazonaws.com/<ACCOUNT_ID>/inquiry-agent-jobs"
+decisionQueueUrl = "https://sqs.us-east-1.amazonaws.com/<ACCOUNT_ID>/inquiry-agent-decisions"
+jobDeadLetterQueueUrl = "https://sqs.us-east-1.amazonaws.com/<ACCOUNT_ID>/inquiry-agent-jobs-dlq"
+decisionDeadLetterQueueUrl = "https://sqs.us-east-1.amazonaws.com/<ACCOUNT_ID>/inquiry-agent-decisions-dlq"
+
+# Paths relative to support-portal/.
+samplesFile = "../data/sample-inquiries.json"
+pageFile = "static/index.html"
