@@ -14,12 +14,9 @@ require aws docker jq
 need CognitoDiscoveryUrl UserPoolId InvestigatorClientId ApplierClientId GatewayOutboundClientId
 
 log "Deploying stack ${MCP_STACK} (repositories and roles)"
-aws cloudformation deploy \
-    --stack-name "${MCP_STACK}" \
-    --template-file "${REPO_ROOT}/infra/cloudformation/mcp-servers.yaml" \
+deploy_stack "${MCP_STACK}" "${REPO_ROOT}/infra/cloudformation/mcp-servers.yaml" \
     --capabilities CAPABILITY_NAMED_IAM \
-    --parameter-overrides "ProjectName=${PROJECT_NAME}" \
-    --no-fail-on-empty-changeset
+    --parameter-overrides "ProjectName=${PROJECT_NAME}" "$(boundary_parameter)"
 save_stack_outputs "${MCP_STACK}"
 need McpServerRuntimeRoleArn GatewayRoleArn ReservationMcpRepositoryUri LoyaltyMcpRepositoryUri PaymentMcpRepositoryUri
 
@@ -62,6 +59,7 @@ deploy_mcp_runtime() {
     local existing="${!id_key:-}" result
     if [[ -z "${existing}" ]]; then
         log "Creating ${server} MCP runtime"
+        request="$(jq --argjson tags "${TAGS_JSON}" '.tags = $tags' <<<"${request}")"
         result="$(aws bedrock-agentcore-control create-agent-runtime --cli-input-json "${request}")"
     else
         log "Updating ${server} MCP runtime ${existing}"
@@ -70,6 +68,7 @@ deploy_mcp_runtime() {
     fi
     save "${id_key}" "$(jq -r .agentRuntimeId <<<"${result}")"
     save "${arn_key}" "$(jq -r .agentRuntimeArn <<<"${result}")"
+    tag_agentcore "${!arn_key}"
 
     wait_for "${server} MCP runtime" "READY" "CREATE_FAILED|UPDATE_FAILED" \
         aws bedrock-agentcore-control get-agent-runtime --agent-runtime-id "${!id_key}" \
@@ -99,7 +98,9 @@ if [[ -z "${OauthProviderArn:-}" ]]; then
         --arg discovery "${CognitoDiscoveryUrl}" \
         --arg client "${GatewayOutboundClientId}" \
         --arg secret "${outbound_secret}" \
+        --argjson tags "${TAGS_JSON}" \
         '.name = $name
+         | .tags = $tags
          | .oauth2ProviderConfigInput.customOauth2ProviderConfig.oauthDiscovery.discoveryUrl = $discovery
          | .oauth2ProviderConfigInput.customOauth2ProviderConfig.clientId = $client
          | .oauth2ProviderConfigInput.customOauth2ProviderConfig.clientSecret = $secret' \
@@ -119,7 +120,9 @@ if [[ -z "${GatewayId:-}" ]]; then
         --arg discovery "${CognitoDiscoveryUrl}" \
         --arg investigator "${InvestigatorClientId}" \
         --arg applier "${ApplierClientId}" \
+        --argjson tags "${TAGS_JSON}" \
         '.name = $name
+         | .tags = $tags
          | .description = "One MCP endpoint for the inquiry agent: reservation, loyalty and payment tools"
          | .roleArn = $role
          | .authorizerConfiguration.customJWTAuthorizer.discoveryUrl = $discovery
@@ -168,4 +171,7 @@ add_target() {
 add_target reservation "${ReservationMcpRuntimeArn}"
 add_target loyalty "${LoyaltyMcpRuntimeArn}"
 add_target payment "${PaymentMcpRuntimeArn}"
+tag_agentcore "${OauthProviderArn}"
+tag_agentcore "$(aws bedrock-agentcore-control get-gateway --gateway-identifier "${GatewayId}" --query gatewayArn --output text)"
+tag_runtime_log_groups
 log "Gateway ready at ${GatewayUrl}"

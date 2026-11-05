@@ -13,14 +13,12 @@ require aws jq
 need KnowledgeBucketName
 
 log "Deploying stack ${KNOWLEDGE_STACK} (guardrail and knowledge base role)"
-aws cloudformation deploy \
-    --stack-name "${KNOWLEDGE_STACK}" \
-    --template-file "${REPO_ROOT}/infra/cloudformation/knowledge.yaml" \
+deploy_stack "${KNOWLEDGE_STACK}" "${REPO_ROOT}/infra/cloudformation/knowledge.yaml" \
     --capabilities CAPABILITY_NAMED_IAM \
     --parameter-overrides \
         "ProjectName=${PROJECT_NAME}" \
         "FoundationStackName=${FOUNDATION_STACK}" \
-    --no-fail-on-empty-changeset
+        "$(boundary_parameter)"
 save_stack_outputs "${KNOWLEDGE_STACK}"
 need KnowledgeBaseRoleArn
 
@@ -36,12 +34,16 @@ if [[ -z "${KnowledgeBaseId:-}" ]]; then
         --description "Runbooks, policies and resolved cases for the inquiry agent (synthetic data)" \
         --role-arn "${KnowledgeBaseRoleArn}" \
         --knowledge-base-configuration "file://${KB_TEMPLATES}/knowledge-base-configuration.json" \
+        --tags "${TAGS_JSON}" \
         --query knowledgeBase.knowledgeBaseId --output text)"
     save KnowledgeBaseId "${kb_id}"
 fi
 wait_for "Knowledge base ${KnowledgeBaseId}" "ACTIVE" "FAILED|DELETE_UNSUCCESSFUL" \
     aws bedrock-agent get-knowledge-base --knowledge-base-id "${KnowledgeBaseId}" \
         --query knowledgeBase.status --output text
+# Tags were set at creation; this keeps them current on re-runs. Data sources take no tags.
+aws bedrock-agent tag-resource --tags "${TAGS_JSON}" --resource-arn "$(aws bedrock-agent get-knowledge-base \
+    --knowledge-base-id "${KnowledgeBaseId}" --query knowledgeBase.knowledgeBaseArn --output text)"
 
 if [[ -z "${CustomDataSourceId:-}" ]]; then
     log "Creating custom data source for resolved cases"

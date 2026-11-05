@@ -27,6 +27,8 @@ create_credential_provider() {
     local name_key="${role}ProviderName" secret_key="${role}ProviderSecretArn"
     if [[ -n "${!secret_key:-}" ]]; then
         log "Credential provider ${!name_key} already exists"
+        tag_agentcore "$(aws bedrock-agentcore-control get-oauth2-credential-provider --name "${!name_key}" \
+            --query credentialProviderArn --output text)"
         return 0
     fi
     local name="${PROJECT_NAME}-${role,,}" client_secret request result
@@ -39,7 +41,9 @@ create_credential_provider() {
         --arg discovery "${CognitoDiscoveryUrl}" \
         --arg client "${client_id}" \
         --arg secret "${client_secret}" \
+        --argjson tags "${TAGS_JSON}" \
         '.name = $name
+         | .tags = $tags
          | .oauth2ProviderConfigInput.customOauth2ProviderConfig.oauthDiscovery.discoveryUrl = $discovery
          | .oauth2ProviderConfigInput.customOauth2ProviderConfig.clientId = $client
          | .oauth2ProviderConfigInput.customOauth2ProviderConfig.clientSecret = $secret' \
@@ -57,9 +61,7 @@ create_credential_provider Applier "${ApplierClientId}"
 # Repository and execution role
 # ---------------------------------------------------------------------------
 log "Deploying stack ${AGENT_STACK} (repository and execution role)"
-aws cloudformation deploy \
-    --stack-name "${AGENT_STACK}" \
-    --template-file "${REPO_ROOT}/infra/cloudformation/agent-runtime.yaml" \
+deploy_stack "${AGENT_STACK}" "${REPO_ROOT}/infra/cloudformation/agent-runtime.yaml" \
     --capabilities CAPABILITY_NAMED_IAM \
     --parameter-overrides \
         "ProjectName=${PROJECT_NAME}" \
@@ -67,7 +69,7 @@ aws cloudformation deploy \
         "KnowledgeBaseId=${KnowledgeBaseId}" \
         "InvestigatorProviderSecretArn=${InvestigatorProviderSecretArn}" \
         "ApplierProviderSecretArn=${ApplierProviderSecretArn}" \
-    --no-fail-on-empty-changeset
+        "$(boundary_parameter)"
 save_stack_outputs "${AGENT_STACK}"
 need AgentRepositoryUri AgentRuntimeRoleArn
 
@@ -107,6 +109,7 @@ request="$(jq \
 if [[ -z "${AgentRuntimeId:-}" ]]; then
     log "Creating the inquiry agent runtime"
     sleep 15  # give a newly created IAM role time to propagate
+    request="$(jq --argjson tags "${TAGS_JSON}" '.tags = $tags' <<<"${request}")"
     result="$(aws bedrock-agentcore-control create-agent-runtime --cli-input-json "${request}")"
 else
     log "Updating the inquiry agent runtime ${AgentRuntimeId}"
@@ -115,6 +118,7 @@ else
 fi
 save AgentRuntimeId "$(jq -r .agentRuntimeId <<<"${result}")"
 save AgentRuntimeArn "$(jq -r .agentRuntimeArn <<<"${result}")"
+tag_agentcore "${AgentRuntimeArn}"
 
 wait_for "Inquiry agent runtime" "READY" "CREATE_FAILED|UPDATE_FAILED" \
     aws bedrock-agentcore-control get-agent-runtime --agent-runtime-id "${AgentRuntimeId}" \

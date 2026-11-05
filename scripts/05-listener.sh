@@ -9,9 +9,7 @@ need AgentRuntimeArn
 
 deploy_listener_stack() {
     local image_tag="$1" desired_count="$2"
-    aws cloudformation deploy \
-        --stack-name "${LISTENER_STACK}" \
-        --template-file "${REPO_ROOT}/infra/cloudformation/listener-ecs.yaml" \
+    deploy_stack "${LISTENER_STACK}" "${REPO_ROOT}/infra/cloudformation/listener-ecs.yaml" \
         --capabilities CAPABILITY_IAM \
         --parameter-overrides \
             "ProjectName=${PROJECT_NAME}" \
@@ -19,7 +17,7 @@ deploy_listener_stack() {
             "ImageTag=${image_tag}" \
             "DesiredCount=${desired_count}" \
             "AgentRuntimeArn=${AgentRuntimeArn}" \
-        --no-fail-on-empty-changeset
+            "$(boundary_parameter)"
     save_stack_outputs "${LISTENER_STACK}"
 }
 

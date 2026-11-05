@@ -5,13 +5,10 @@ source "$(dirname "$0")/lib.sh"
 require aws
 
 log "Deploying stack ${FOUNDATION_STACK}"
-aws cloudformation deploy \
-    --stack-name "${FOUNDATION_STACK}" \
-    --template-file "${REPO_ROOT}/infra/cloudformation/foundation.yaml" \
+deploy_stack "${FOUNDATION_STACK}" "${REPO_ROOT}/infra/cloudformation/foundation.yaml" \
     --parameter-overrides \
         "ProjectName=${PROJECT_NAME}" \
-        "CognitoDomainPrefix=${COGNITO_DOMAIN_PREFIX}" \
-    --no-fail-on-empty-changeset
+        "CognitoDomainPrefix=${COGNITO_DOMAIN_PREFIX}"
 
 save_stack_outputs "${FOUNDATION_STACK}"
 log "Foundation ready. Outputs saved to .deploy/outputs.env"

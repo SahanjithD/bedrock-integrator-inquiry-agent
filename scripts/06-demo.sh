@@ -41,6 +41,9 @@ for case_id in "${case_ids[@]}"; do
     log "${case_id}: ${status} (${tool})"
 done
 
+# AgentCore Runtime creates its log groups when a runtime first starts a session; tag them now.
+tag_runtime_log_groups
+
 echo
 log "Review the cases at ${portal}, or with curl, for example:"
 echo "  curl -s ${portal}/cases/${case_ids[0]} | jq"
