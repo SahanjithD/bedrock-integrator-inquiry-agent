@@ -17,7 +17,10 @@ import inquiry_agent.core;
 import ballerina/http;
 import ballerina/log;
 
-listener http:Listener runtimeListener = new (8080);
+// The listener's default request timeout (60 seconds) would cut off investigations and the
+// apply action's knowledge base update, which waits until the document is indexed. 900 seconds
+// matches the limit AgentCore Runtime sets on a synchronous request.
+listener http:Listener runtimeListener = new (8080, timeout = 900);
 
 service / on runtimeListener {
 
