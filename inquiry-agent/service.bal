@@ -6,7 +6,8 @@
 // default).
 //
 // Every handled request gets HTTP 200 with `status` set to "ok" or "error", so the listener
-// can always read the outcome.
+// can always read the outcome. AgentCore Runtime treats any other status as a failed invocation,
+// and a Ballerina `post` resource answers 201 unless it returns `http:Ok`.
 //
 // AgentCore Runtime adds a `WorkloadAccessToken` header because the listener names a runtime user
 // ID. The actions exchange it for gateway tokens (identity.bal).
@@ -23,11 +24,11 @@ service / on runtimeListener {
     resource function get ping() returns json => {status: "Healthy"};
 
     isolated resource function post invocations(@http:Payload core:InvocationRequest request,
-            @http:Header {name: WORKLOAD_ACCESS_TOKEN_HEADER} string? workloadAccessToken) returns json {
+            @http:Header {name: WORKLOAD_ACCESS_TOKEN_HEADER} string? workloadAccessToken) returns http:Ok {
         string? problem = core:checkRequest(request);
         if problem is string {
             log:printWarn("Invocation rejected", reason = problem, caseId = request.caseId);
-            return errorResponse(request.caseId, core:INVALID_REQUEST, problem);
+            return {body: errorResponse(request.caseId, core:INVALID_REQUEST, problem)};
         }
         core:InvocationRequest & readonly checked = request.cloneReadOnly();
         json|error result = checked.action == "investigate" ? investigate(checked, workloadAccessToken)
@@ -36,9 +37,9 @@ service / on runtimeListener {
             core:ErrorCode code = result is core:AgentError ? result.detail().code
                 : checked.action == "investigate" ? core:INVESTIGATION_FAILED : core:APPLY_FAILED;
             log:printError("Action failed", result, caseId = checked.caseId, action = checked.action, code = code);
-            return errorResponse(checked.caseId, code, result.message());
+            return {body: errorResponse(checked.caseId, code, result.message())};
         }
-        return result;
+        return {body: result};
     }
 }
 
