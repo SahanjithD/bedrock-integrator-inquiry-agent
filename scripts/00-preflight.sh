@@ -59,7 +59,9 @@ for command in bedrock-agent bedrock-agentcore-control bedrock-agentcore; do
     if aws "${command}" help >/dev/null 2>&1; then pass "aws ${command}"; else fail "aws ${command} is missing; update the AWS CLI"; fi
 done
 if docker buildx version >/dev/null 2>&1; then pass "Docker Buildx"; else fail "Docker Buildx is required"; fi
-if docker buildx ls 2>/dev/null | grep -q "linux/arm64"; then
+# `buildx ls` exits non-zero when any builder is unreachable, even if another one works.
+builders="$(docker buildx ls 2>/dev/null || true)"
+if grep -q "linux/arm64" <<<"${builders}"; then
     pass "Buildx can build linux/arm64"
 else
     unknown "no Buildx builder lists linux/arm64; install QEMU emulation or use an ARM64 machine"
