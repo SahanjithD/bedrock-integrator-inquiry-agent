@@ -1,6 +1,8 @@
 // Types shared by the HTTP entry point and the two actions.
 // They live in this submodule so they can be unit tested without AWS clients.
 
+import ballerina/ai;
+
 # What the runtime is asked to do. The inquiry listener picks the action.
 public type Action "investigate"|"apply";
 
@@ -40,7 +42,49 @@ public type ProposedAction record {|
     string rationale;
 |};
 
-# What the investigate action returns.
+# What the investigate action returns. `ai:Agent.run` gives the model this type's JSON schema as
+# the parameters of its final-answer tool. The schema is written out because `ballerina/ai` does
+# not generate one for this record (it has an open `arguments` map and a defaulted field).
+@ai:JsonSchema {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["summary", "evidence", "rootCause", "draftReply", "confidence"],
+    "properties": {
+        "summary": {"type": "string", "description": "Two or three sentences on what happened"},
+        "evidence": {
+            "type": "array",
+            "description": "Facts gathered from tools and the knowledge base",
+            "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["source", "detail"],
+                "properties": {
+                    "source": {"type": "string", "description": "A tool name or a knowledge base source"},
+                    "detail": {"type": "string", "description": "The fact itself, including the IDs it refers to"}
+                }
+            }
+        },
+        "rootCause": {"type": "string", "description": "The most likely cause"},
+        "proposedAction": {
+            "type": "object",
+            "description": "The proposed fix. Leave out when no change is needed or the cause is unclear",
+            "additionalProperties": false,
+            "required": ["tool", "arguments", "rationale"],
+            "properties": {
+                "tool": {"type": "string", "description": "Gateway tool name of a write tool, e.g. loyalty___creditPoints"},
+                "arguments": {"type": "object", "description": "Arguments for the tool, without approvalId"},
+                "rationale": {"type": "string", "description": "Why this change fixes the problem"}
+            }
+        },
+        "draftReply": {"type": "string", "description": "A reply the representative can send after the fix is applied"},
+        "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+        "knowledgeSources": {
+            "type": "array",
+            "description": "Runbooks, policies or past cases used",
+            "items": {"type": "string"}
+        }
+    }
+}
 public type Findings record {|
     # Two or three sentences on what happened
     string summary;
