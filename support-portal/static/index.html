@@ -207,23 +207,40 @@
     return representative ? { ...payload, representative } : payload;
   }
 
+  // Buttons are disabled while a request is in flight, so a double click sends it once.
+  let busy = false;
+  async function once(action) {
+    if (busy) return;
+    busy = true;
+    const buttons = document.querySelectorAll("button");
+    buttons.forEach(button => button.disabled = true);
+    try { await action(); } finally {
+      busy = false;
+      document.querySelectorAll("button").forEach(button => button.disabled = false);
+    }
+  }
+
   async function createCase(payload) {
-    try {
-      const created = await api("/cases", { method: "POST", body: JSON.stringify(withRepresentative(payload)) });
-      toast("Created " + created.caseId);
-      selected = created.caseId;
-      await refresh();
-    } catch (error) { toast(error.message); }
+    await once(async () => {
+      try {
+        const created = await api("/cases", { method: "POST", body: JSON.stringify(withRepresentative(payload)) });
+        toast("Created " + created.caseId);
+        selected = created.caseId;
+        await refresh();
+      } catch (error) { toast(error.message); }
+    });
   }
 
   async function decide(caseId, decision) {
-    try {
-      const sent = await api(`/cases/${encodeURIComponent(caseId)}/decision`, {
-        method: "POST", body: JSON.stringify(withRepresentative({ decision }))
-      });
-      toast((decision === "approve" ? "Approved" : "Rejected") + " proposal v" + sent.proposalVersion);
-      await refresh();
-    } catch (error) { toast(error.message); }
+    await once(async () => {
+      try {
+        const sent = await api(`/cases/${encodeURIComponent(caseId)}/decision`, {
+          method: "POST", body: JSON.stringify(withRepresentative({ decision }))
+        });
+        toast((decision === "approve" ? "Approved" : "Rejected") + " proposal v" + sent.proposalVersion);
+        await refresh();
+      } catch (error) { toast(error.message); }
+    });
   }
 
   async function loadCases() {
