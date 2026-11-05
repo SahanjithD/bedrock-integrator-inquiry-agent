@@ -18,17 +18,18 @@
 
 The listener and the agent are separate projects with separate permissions:
 
-- **Listener** (task role): the two queues, the case table, and `InvokeAgentRuntime` on the agent
-  runtime.
-- **Agent** (execution role): the model, the guardrail, the knowledge base, and the Cognito
-  client secret.
+- **Listener** (task role): the two queues, the case table, and `InvokeAgentRuntime` (with a
+  runtime user ID) on the agent runtime.
+- **Agent** (execution role): the model, the guardrail, the knowledge base, and gateway tokens
+  from its two AgentCore Identity credential providers.
 
 Neither can do the other's job.
 
 ## Calling the agent
 
 The listener calls `InvokeAgentRuntime` synchronously. It sends a SigV4-signed HTTPS request
-with the ECS task role and waits for one JSON answer.
+with the ECS task role and waits for one JSON answer. The request names the representative as
+the runtime user ID: `requestedBy` from the job, or `decidedBy` from the decision.
 
 | Limit | Value |
 | --- | --- |
@@ -39,6 +40,24 @@ with the ECS task role and waits for one JSON answer.
 
 Each agent call is a new runtime session with the session ID `<caseId>-<attempt>` (or
 `<caseId>-apply-v<version>`), padded to at least 33 characters.
+
+## Gateway tokens
+
+```
+listener --InvokeAgentRuntime (user ID)--> AgentCore Runtime --WorkloadAccessToken--> agent
+agent --GetResourceOauth2Token (M2M)--> AgentCore Identity --client credentials--> Cognito
+agent --tool calls with the token--> Gateway (validates it against Cognito's JWKS)
+Gateway --token from its own credential provider--> MCP server runtimes
+```
+
+1. Because the listener sends a runtime user ID, AgentCore Runtime passes the agent a workload
+   access token for that user in the `WorkloadAccessToken` header.
+2. The agent exchanges it with AgentCore Identity (`GetResourceOauth2Token`, M2M flow) for a
+   token from the investigator provider (read scope) or the applier provider (write scope).
+   Each provider holds its Cognito client's secret; the agent never sees it.
+3. The gateway accepts only tokens issued to those two clients.
+4. For its calls to the MCP servers, the gateway uses a third provider (the gateway-outbound
+   client), and each MCP runtime accepts only that client's tokens.
 
 ## Investigation flow (jobs queue)
 
@@ -61,11 +80,13 @@ Each agent call is a new runtime session with the session ID `<caseId>-<attempt>
 ## Approval flow (decisions queue)
 
 1. The representative reviews the case and approves or rejects. The portal sends
-   `{caseId, decision, proposalVersion}` to the decisions queue. Nothing else travels.
+   `{caseId, decision, proposalVersion, decidedBy}` to the decisions queue. No action travels.
 2. A decisions listener receives the message.
-3. **Rejected:** `PENDING_APPROVAL` → `REJECTED`, if the version is current.
+3. **Rejected:** `PENDING_APPROVAL` → `REJECTED`, if the version is current. `decidedBy` is
+   stored on the case.
 4. **Approved:**
-   1. `PENDING_APPROVAL` → `APPLYING` with a conditional update (status and version must match).
+   1. `PENDING_APPROVAL` → `APPLYING` with a conditional update (status and version must match),
+      storing `decidedBy`.
    2. Load the proposal and findings from the case (never from the message).
    3. Call the agent with `{action: "apply", caseId, proposalVersion, proposedAction, findings}`.
    4. The agent calls exactly that one write tool through the gateway with
@@ -106,6 +127,7 @@ QUEUED -> INVESTIGATING -> PENDING_APPROVAL -> APPLYING -> APPLIED
 | `findings`, `proposedAction` | S (JSON) | listener, from the agent's answer |
 | `draftReply` | S | listener, from the agent's answer |
 | `proposalVersion` | N | listener (incremented per saved investigation) |
+| `decidedBy` | S | listener, from the decision |
 | `applyResult` | S (JSON) | listener, from the agent's answer |
 | `failureReason` | S | listener |
 | `createdAt`, `updatedAt` | S | portal, listener |
@@ -124,14 +146,15 @@ Job (jobs queue, and `job` on the case):
   "inquiry": "I stayed last weekend, but my loyalty points never showed up.",
   "channel": "chat",
   "context": {"memberId": "M-77310"},
-  "submittedAt": "2026-11-03T09:15:00Z"
+  "submittedAt": "2026-11-03T09:15:00Z",
+  "requestedBy": "rep-ana"
 }
 ```
 
 Decision (decisions queue):
 
 ```json
-{"caseId": "CASE-20261103-1a2b3c", "decision": "APPROVED", "proposalVersion": 1}
+{"caseId": "CASE-20261103-1a2b3c", "decision": "APPROVED", "proposalVersion": 1, "decidedBy": "rep-ana"}
 ```
 
 Agent answer to `investigate`:
@@ -165,10 +188,11 @@ Agent error answer (either action):
 ## Read-only during investigation
 
 1. The investigation loads only the read tools (`ai:McpToolKit` with `permittedTools`).
-2. It gets gateway tokens from the investigator Cognito client, which has only the read scope.
+2. It gets gateway tokens from the investigator credential provider, whose Cognito client has
+   only the read scope.
 3. A proposal is only data until approved. The apply action receives the stored proposal from
    the listener. It calls the proposal only if it names a tool on the write list, using tokens
-   from the applier client (write scope).
+   from the applier credential provider (write scope).
 4. Write tools require an `approvalId` and are idempotent per `approvalId`.
 
 Gateway-side enforcement of scopes per tool is not configured in this sample (see Known limits

@@ -42,7 +42,8 @@ the checking to an agent and keeps the correction with a person:
   three failed receives.
 - **Inquiry listener on Amazon ECS:** a WSO2 Integrator (Ballerina) service on AWS Fargate
   (ARM64, one task) with SQS listeners for both queues. It owns the case status and calls the
-  agent with a SigV4-signed `InvokeAgentRuntime` request, using its task role.
+  agent with a SigV4-signed `InvokeAgentRuntime` request, using its task role. Each call names
+  the representative who sent the job or decision as the runtime user ID.
   - Investigation: the listener claims the case with a conditional update (`QUEUED` →
     `INVESTIGATING`) and calls the agent. It saves the findings, proposed fix and draft reply,
     sets `PENDING_APPROVAL`, and only then deletes the message. On error it leaves the message
@@ -60,8 +61,12 @@ the checking to an agent and keeps the correction with a person:
   knowledge base. It has an S3 data source for runbooks and policies, and a custom data source
   for resolved cases, which the agent adds to after applying a fix.
 - **Tools through Amazon Bedrock AgentCore Gateway:** every tool call goes through one MCP
-  endpoint, with Amazon Cognito client-credentials auth. The agent reads the client secret from
-  AWS Secrets Manager with its execution role. The gateway's targets are reservation, loyalty and
+  endpoint, with Amazon Cognito client-credentials auth. The agent gets its tokens from AgentCore
+  Identity: AgentCore Runtime passes it a workload access token for the runtime user, and the
+  agent exchanges that for a token from the investigator (read scope) or applier (write scope)
+  credential provider. The Cognito client secrets stay in AgentCore Identity. The gateway
+  validates each token against Cognito, and uses a third credential provider for its own calls
+  to the targets. The gateway's targets are reservation, loyalty and
   payment MCP servers built with WSO2 Integrator and hosted on AgentCore Runtime. Each serves its
   own synthetic data. Investigations can use only the read-only tools; write tools are used only
   after approval.
@@ -132,10 +137,10 @@ built here. If you add one, list its read-only tools in `inquiry-agent/modules/c
 
    | Step | Script | Creates |
    | --- | --- | --- |
-   | 1 | `01-foundation.sh` | SQS queues and DLQs, DynamoDB case table, S3 bucket, Cognito clients and their secret |
+   | 1 | `01-foundation.sh` | SQS queues and DLQs, DynamoDB case table, S3 bucket, Cognito clients |
    | 2 | `02-knowledge-base.sh` | Guardrail, managed knowledge base, S3 and custom data sources, seeded content |
-   | 3 | `03-mcp-servers.sh` | Three ARM64 MCP server images, their AgentCore runtimes, the gateway and its targets |
-   | 4 | `04-agent.sh` | ARM64 agent image and the inquiry agent runtime (`agent-runtime.yaml`, `inquiry-agent.json`) |
+   | 3 | `03-mcp-servers.sh` | Three ARM64 MCP server images, their AgentCore runtimes, the gateway's outbound credential provider, the gateway and its targets |
+   | 4 | `04-agent.sh` | The agent's investigator and applier credential providers, the ARM64 agent image and the inquiry agent runtime (`agent-runtime.yaml`, `inquiry-agent.json`) |
    | 5 | `05-listener.sh` | Listener image and the ECS stack (`listener-ecs.yaml`) running one listener task |
    | 6 | `06-demo.sh` | Not part of `deploy.sh`: creates the three sample cases and waits for their investigations |
 
@@ -160,10 +165,11 @@ is saved:
 ./scripts/06-demo.sh
 ```
 
-Or submit a single sample and watch it:
+Or submit a single sample and watch it. `--rep` names the representative (default: your login
+name); it becomes the runtime user ID for the agent call.
 
 ```bash
-python3 scripts/console.py submit --sample 1
+python3 scripts/console.py submit --sample 1 --rep rep-ana
 ```
 
 ```bash
@@ -231,11 +237,11 @@ To avoid ongoing charges, delete everything the deploy scripts created:
 The script works in reverse order. It deletes:
 
 1. the listener's ECR images and the ECS stack,
-2. the agent runtime, the gateway targets, gateway and credential provider, and the MCP
-   runtimes,
+2. the agent runtime and its two credential providers, the gateway targets, gateway and its
+   credential provider, and the MCP runtimes,
 3. the agent's and MCP servers' ECR images and stacks,
 4. the knowledge base, its data sources and the guardrail stack,
-5. the bucket contents, the gateway client secret and the foundation stack.
+5. the bucket contents and the foundation stack.
 
 Check its output for anything it reports as skipped.
 
@@ -247,7 +253,9 @@ Check its output for anything it reports as skipped.
   - `ballerina/ai`, `ballerina/mcp`
   - `ballerinax/ai.aws.bedrock`, `ballerinax/aws`, `ballerinax/aws.sqs`, `ballerinax/aws.dynamodb`
 - **Items marked `TODO(verify)`:** search the repository for `TODO(verify)`. They cover:
-  - the AgentCore CLI request shapes (runtimes, gateway, targets, OAuth credential provider),
+  - the AgentCore CLI request shapes (runtimes, gateway, targets, OAuth credential providers),
+  - the `WorkloadAccessToken` header AgentCore Runtime passes to the agent, and the IAM actions
+    for the runtime user ID (`InvokeAgentRuntimeForUser`) and for `GetResourceOauth2Token`,
   - the runtime endpoint URL used for gateway targets,
   - the gateway tool-name prefix (`<target>___<tool>`),
   - the S3 data source parameters for a managed knowledge base,
@@ -281,8 +289,9 @@ Check its output for anything it reports as skipped.
   the agent (tool allow lists) and by separate Cognito clients, not by gateway policy.
 - **Guardrail scope:** personal data is masked in model output only; input is checked but not
   changed. Card security codes are blocked.
-- **No approver identity:** the console does not record who approved a change. A real support
-  system would.
+- **Approver identity is not authenticated:** the case records who decided (`decidedBy`), but
+  the console takes it from `--rep` or your login name. A real support system would take it from
+  the signed-in user and enforce who may approve which change.
 - **A failed or interrupted apply stops at `NEEDS_REVIEW`.** A person must check whether the
   change was made.
 - **Public subnet** for the listener task, public network mode for the runtimes, and AWS owned

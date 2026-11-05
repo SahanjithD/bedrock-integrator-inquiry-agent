@@ -2,11 +2,12 @@
 
 | Path | Deployed by | Contents |
 | --- | --- | --- |
-| `cloudformation/foundation.yaml` | `scripts/01-foundation.sh` | SQS jobs and decisions queues with DLQs, DynamoDB case table, knowledge bucket, Cognito machine clients, client-secret secret |
+| `cloudformation/foundation.yaml` | `scripts/01-foundation.sh` | SQS jobs and decisions queues with DLQs, DynamoDB case table, knowledge bucket, Cognito machine clients |
 | `cloudformation/knowledge.yaml` | `scripts/02-knowledge-base.sh` | Guardrail (PII masking) and the knowledge base service role |
 | `knowledge-base/*.json` | `scripts/02-knowledge-base.sh` | Request bodies for the managed knowledge base and its two data sources |
 | `cloudformation/mcp-servers.yaml` | `scripts/03-mcp-servers.sh` | ECR repositories and IAM roles for the MCP server runtimes and the gateway |
-| `agentcore/mcp-runtime.json`, `oauth-provider.json`, `gateway*.json` | `scripts/03-mcp-servers.sh` | Request bodies for the MCP runtimes, the OAuth credential provider, the gateway and its targets |
+| `agentcore/mcp-runtime.json`, `oauth-provider.json`, `gateway*.json` | `scripts/03-mcp-servers.sh` | Request bodies for the MCP runtimes, the gateway's outbound OAuth credential provider, the gateway and its targets |
+| `agentcore/oauth-provider.json` | `scripts/04-agent.sh` | Request body for the agent's investigator and applier credential providers |
 | `cloudformation/agent-runtime.yaml` | `scripts/04-agent.sh` | ECR repository and execution role for the inquiry agent on AgentCore Runtime |
 | `agentcore/inquiry-agent.json` | `scripts/04-agent.sh` | Request body for the inquiry agent runtime (HTTP protocol) |
 | `cloudformation/listener-ecs.yaml` | `scripts/05-listener.sh` | Inquiry listener on Amazon ECS: VPC with public subnets, outbound-only security group, ECR repository, cluster, Fargate task definition and service (one task), task and execution roles, log group |
@@ -27,19 +28,24 @@ request shapes are easy to review in one place.
   - `sqs:ReceiveMessage`, `DeleteMessage`, `ChangeMessageVisibility` and `GetQueueAttributes`
     on the two queues,
   - `dynamodb:GetItem` and `UpdateItem` on the case table,
-  - `bedrock-agentcore:InvokeAgentRuntime` on the agent runtime ARN only.
+  - `bedrock-agentcore:InvokeAgentRuntime` and `InvokeAgentRuntimeForUser` on the agent runtime
+    ARN only. The second is needed because every call sends a runtime user ID.
 - Both queues hide a received message for 20 minutes, above AgentCore Runtime's 15-minute limit
   for a synchronous request.
 
 ## Inquiry agent on AgentCore Runtime
 
-- HTTP protocol, ARM64, port 8080. Settings reach the agent in `BAL_CONFIG_DATA`. It reads the
-  Cognito client secrets from Secrets Manager with its execution role.
+- HTTP protocol, ARM64, port 8080. Settings reach the agent in `BAL_CONFIG_DATA`. It holds no
+  secrets: it gets gateway tokens from two AgentCore Identity credential providers, which
+  `scripts/04-agent.sh` creates before the stack.
 - Execution role (`agent-runtime.yaml`):
   - `bedrock:InvokeModel` on Anthropic models and US inference profiles,
   - `bedrock:ApplyGuardrail` on the guardrail,
   - `bedrock:Retrieve` and `bedrock:IngestKnowledgeBaseDocuments` on the knowledge base,
-  - `secretsmanager:GetSecretValue` on the Cognito client secret.
+  - `bedrock-agentcore:GetWorkloadAccessToken*` and `GetResourceOauth2Token` on the workload
+    identity directory and token vault,
+  - `secretsmanager:GetSecretValue` on the two secrets AgentCore Identity created for the
+    agent's providers (passed in as stack parameters), and not on the gateway's.
 
   Two groups of extra permissions are also required:
   - `GetKnowledgeBase`, `GetDataSource` and `GetKnowledgeBaseDocuments`, which the Ballerina
@@ -65,6 +71,9 @@ API reference for your AWS CLI version:
   `bedrock-agentcore-control create-agent-runtime`, including `environmentVariables`.
 - `cloudformation/listener-ecs.yaml`: **TODO(verify)** whether `InvokeAgentRuntime` also needs
   the runtime endpoint ARN as a resource.
+- `cloudformation/agent-runtime.yaml`: **TODO(verify)** the actions and resources AgentCore
+  Identity checks for `GetResourceOauth2Token`, and that AgentCore Runtime passes the
+  `WorkloadAccessToken` header when the caller sends a runtime user ID.
 - `agentcore/oauth-provider.json`: **TODO(verify)** the shape of
   `create-oauth2-credential-provider` for a custom OAuth 2.0 provider (Cognito).
 - `agentcore/gateway.json`, `gateway-target.json`: **TODO(verify)** the MCP server target
