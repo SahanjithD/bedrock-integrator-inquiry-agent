@@ -77,7 +77,10 @@ Resources:
                 Effect: Allow
                 Action:
                   - bedrock:Retrieve
+                  # Adding a document to the custom data source is checked for StartIngestionJob
+                  # as well as IngestKnowledgeBaseDocuments.
                   - bedrock:IngestKnowledgeBaseDocuments
+                  - bedrock:StartIngestionJob
                   # The ballerinax/ai.aws.bedrock client checks the knowledge base and data
                   # source at startup, and polls document status after ingesting.
                   - bedrock:GetKnowledgeBase
