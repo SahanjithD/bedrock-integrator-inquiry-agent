@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Deletes everything the deploy scripts created, in reverse order. Safe to re-run: steps
-# whose resources are already gone are skipped.
+# Deletes everything the deploy scripts created for PROJECT_NAME, in reverse order. It lists what
+# it will delete and asks you to type the prefix first (or set CONFIRM_CLEANUP=<prefix>). Safe to
+# re-run: steps whose resources are already gone are skipped.
 source "$(dirname "$0")/lib.sh"
 require aws jq
 
@@ -12,6 +13,25 @@ delete_stack() {
     try aws cloudformation delete-stack --stack-name "${stack}"
     try aws cloudformation wait stack-delete-complete --stack-name "${stack}"
 }
+
+# --- What will be deleted -------------------------------------------------------
+# Only resources named with this prefix, or recorded in .deploy/outputs.env.
+echo
+log "This deletes everything deployed for '${PROJECT_NAME}' in $(aws sts get-caller-identity --query Account --output text) / ${AWS_REGION}:"
+log "  Stacks:        ${LISTENER_STACK}, ${AGENT_STACK}, ${MCP_STACK}, ${KNOWLEDGE_STACK}, ${FOUNDATION_STACK}"
+log "  ECR images:    ${PROJECT_NAME}/inquiry-listener, inquiry-agent, reservation-mcp, loyalty-mcp, payment-mcp"
+runtimes="$(printf '%s ' "${AgentRuntimeId:-}" "${ReservationMcpRuntimeId:-}" "${LoyaltyMcpRuntimeId:-}" "${PaymentMcpRuntimeId:-}" | xargs)"
+log "  AgentCore:     runtimes ${runtimes:-none}"
+log "                 gateway ${GatewayId:-none}, credential provider ${OauthProviderName:-none}"
+log "  Knowledge base ${KnowledgeBaseId:-none} and its data sources"
+log "  Bucket:        ${KnowledgeBucketName:-none} (all object versions)"
+log "  Secret:        ${GatewayClientSecretsArn:-none} (no recovery window)"
+log "  Log groups:    /aws/bedrock-agentcore/runtimes/${RUNTIME_PREFIX}_*"
+echo
+if [[ "${CONFIRM_CLEANUP:-}" != "${PROJECT_NAME}" ]]; then
+    read -r -p "Type '${PROJECT_NAME}' to delete these resources: " answer
+    [[ "${answer}" == "${PROJECT_NAME}" ]] || die "Not confirmed. Nothing was deleted."
+fi
 
 # --- Step 5: the listener on ECS ----------------------------------------------
 delete_images "${PROJECT_NAME}/inquiry-listener" || true
@@ -64,6 +84,14 @@ for server in Reservation Loyalty Payment; do
         forget "${key}"; forget "${server}McpRuntimeArn"; forget "${server}McpImage"
     fi
 done
+
+# The runtimes' own log groups are created by AgentCore Runtime, not by a stack.
+while IFS= read -r group; do
+    [[ -n "${group}" && "${group}" != "None" ]] || continue
+    log "Deleting log group ${group}"
+    try aws logs delete-log-group --log-group-name "${group}"
+done < <(aws logs describe-log-groups --log-group-name-prefix "/aws/bedrock-agentcore/runtimes/${RUNTIME_PREFIX}_" \
+    --query 'logGroups[].logGroupName' --output text 2>/dev/null | tr '\t' '\n' || true)
 
 # --- ECR repositories and roles for the agent and the MCP servers ---------------
 delete_images "${PROJECT_NAME}/inquiry-agent" || true
