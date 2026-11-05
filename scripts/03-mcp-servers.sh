@@ -136,12 +136,48 @@ wait_for "Gateway ${GatewayId}" "READY" "FAILED" \
     aws bedrock-agentcore-control get-gateway --gateway-identifier "${GatewayId}" \
         --query status --output text
 
+# Prints a gateway target's status, or GONE if it does not exist.
+target_status() {
+    local output
+    if output="$(aws bedrock-agentcore-control get-gateway-target --gateway-identifier "${GatewayId}" \
+            --target-id "$1" --query status --output text 2>&1)"; then
+        printf '%s\n' "${output}"
+    elif [[ "${output}" == *ResourceNotFoundException* ]]; then
+        printf 'GONE\n'
+    else
+        printf '%s\n' "${output}" >&2
+        return 1
+    fi
+}
+
+target_reasons() {
+    aws bedrock-agentcore-control get-gateway-target --gateway-identifier "${GatewayId}" \
+        --target-id "$1" --query statusReasons --output text
+}
+
+# Adds a target unless a working one is recorded. A recorded target that failed is deleted and
+# added again, and one that no longer exists is added again.
 add_target() {
     local name="$1" runtime_arn="$2"
-    local key="$(capitalize "${name}")TargetId"
+    local key="$(capitalize "${name}")TargetId" status
     if [[ -n "${!key:-}" ]]; then
-        log "Target ${name} already exists (${!key})"
-        return 0
+        status="$(target_status "${!key}")" || die "Could not read target ${name} (${!key})"
+        case "${status}" in
+            READY)
+                log "Target ${name} already exists (${!key})"
+                return 0 ;;
+            FAILED|SYNCHRONIZE_UNSUCCESSFUL|UPDATE_UNSUCCESSFUL)
+                warn "Target ${name} (${!key}) ${status}: $(target_reasons "${!key}")"
+                log "Deleting target ${name} (${!key}) to add it again"
+                aws bedrock-agentcore-control delete-gateway-target --gateway-identifier "${GatewayId}" \
+                    --target-id "${!key}" >/dev/null
+                wait_for "Deleting target ${name}" "GONE" "" target_status "${!key}"
+                forget "${key}" ;;
+            GONE)
+                forget "${key}" ;;
+            *)
+                die "Target ${name} (${!key}) is ${status}; run this step again when it settles" ;;
+        esac
     fi
     local endpoint
     endpoint="https://bedrock-agentcore.${AWS_REGION}.amazonaws.com/runtimes/$(urlencode "${runtime_arn}")/invocations?qualifier=DEFAULT"
@@ -161,9 +197,10 @@ add_target() {
         "${AGENTCORE_TEMPLATES}/gateway-target.json")"
     save "${key}" "$(aws bedrock-agentcore-control create-gateway-target \
         --cli-input-json "${request}" --query targetId --output text)"
-    wait_for "Target ${name}" "READY" "FAILED|SYNCHRONIZE_UNSUCCESSFUL" \
-        aws bedrock-agentcore-control get-gateway-target --gateway-identifier "${GatewayId}" \
-            --target-id "${!key}" --query status --output text
+    # Failures are not passed to wait_for, so the reason can be shown before stopping.
+    wait_for "Target ${name}" "READY|FAILED|SYNCHRONIZE_UNSUCCESSFUL" "" target_status "${!key}"
+    status="$(target_status "${!key}")"
+    [[ "${status}" == "READY" ]] || die "Target ${name} (${!key}) ${status}: $(target_reasons "${!key}")"
 }
 
 # Target names become tool-name prefixes (e.g. loyalty___creditPoints); they must match
