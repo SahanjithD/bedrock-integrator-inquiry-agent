@@ -205,8 +205,11 @@ tag_runtime_log_groups() {
     local group arn
     while IFS=$'\t' read -r group arn; do
         [[ -n "${group}" ]] || continue
-        aws logs tag-resource --resource-arn "${arn%:\*}" --tags "${TAGS_JSON}" >/dev/null 2>&1 \
-            && log "Tagged log group ${group}" || warn "Could not tag log group ${group}"
+        if aws logs tag-resource --resource-arn "${arn%:\*}" --tags "${TAGS_JSON}" >/dev/null 2>&1; then
+            log "Tagged log group ${group}"
+        else
+            warn "Could not tag log group ${group}"
+        fi
     done < <(aws logs describe-log-groups --log-group-name-prefix "/aws/bedrock-agentcore/runtimes/${RUNTIME_PREFIX}_" \
         --query 'logGroups[].[logGroupName,arn]' --output text 2>/dev/null || true)
 }
