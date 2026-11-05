@@ -76,7 +76,6 @@ else
     done
     expect_absent "queue ${PROJECT_NAME}-jobs" aws sqs get-queue-url --queue-name "${PROJECT_NAME}-jobs"
     expect_absent "table ${PROJECT_NAME}-cases" aws dynamodb describe-table --table-name "${PROJECT_NAME}-cases"
-    expect_absent "secret ${PROJECT_NAME}/gateway-clients" aws secretsmanager describe-secret --secret-id "${PROJECT_NAME}/gateway-clients"
     for role in knowledge-base mcp-runtime gateway agent-runtime; do
         expect_absent "IAM role ${PROJECT_NAME}-${role}" aws iam get-role --role-name "${PROJECT_NAME}-${role}"
     done
@@ -88,8 +87,9 @@ else
         --query "agentRuntimes[?starts_with(agentRuntimeName, '${RUNTIME_PREFIX}_')].agentRuntimeName" --output text
     expect_none "gateway ${PROJECT_NAME}-gateway" aws bedrock-agentcore-control list-gateways \
         --query "items[?name=='${PROJECT_NAME}-gateway'].name" --output text
-    expect_none "OAuth credential provider ${PROJECT_NAME}-runtime-oauth" aws bedrock-agentcore-control \
-        list-oauth2-credential-providers --query "credentialProviders[?name=='${PROJECT_NAME}-runtime-oauth'].name" --output text
+    expect_none "credential providers ${PROJECT_NAME}-runtime-oauth, -investigator, -applier" aws bedrock-agentcore-control \
+        list-oauth2-credential-providers --output text --query "credentialProviders[?name=='${PROJECT_NAME}-runtime-oauth' \
+            || name=='${PROJECT_NAME}-investigator' || name=='${PROJECT_NAME}-applier'].name"
     expect_none "knowledge base ${PROJECT_NAME}-kb" aws bedrock-agent list-knowledge-bases \
         --query "knowledgeBaseSummaries[?name=='${PROJECT_NAME}-kb'].name" --output text
 

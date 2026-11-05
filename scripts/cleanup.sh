@@ -22,10 +22,11 @@ log "  Stacks:        ${LISTENER_STACK}, ${AGENT_STACK}, ${MCP_STACK}, ${KNOWLED
 log "  ECR images:    ${PROJECT_NAME}/inquiry-listener, inquiry-agent, reservation-mcp, loyalty-mcp, payment-mcp"
 runtimes="$(printf '%s ' "${AgentRuntimeId:-}" "${ReservationMcpRuntimeId:-}" "${LoyaltyMcpRuntimeId:-}" "${PaymentMcpRuntimeId:-}" | xargs)"
 log "  AgentCore:     runtimes ${runtimes:-none}"
-log "                 gateway ${GatewayId:-none}, credential provider ${OauthProviderName:-none}"
+log "                 gateway ${GatewayId:-none}"
+providers="$(printf '%s ' "${OauthProviderName:-}" "${InvestigatorProviderName:-}" "${ApplierProviderName:-}" | xargs)"
+log "                 credential providers ${providers:-none}"
 log "  Knowledge base ${KnowledgeBaseId:-none} and its data sources"
 log "  Bucket:        ${KnowledgeBucketName:-none} (all object versions)"
-log "  Secret:        ${GatewayClientSecretsArn:-none} (no recovery window)"
 log "  Log groups:    /aws/bedrock-agentcore/runtimes/${RUNTIME_PREFIX}_*"
 echo
 if [[ "${CONFIRM_CLEANUP:-}" != "${PROJECT_NAME}" ]]; then
