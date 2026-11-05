@@ -171,6 +171,30 @@
       }
     },
     {
+      "Sid": "CreateInOwnVpc",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:CreateSubnet",
+        "ec2:CreateRouteTable",
+        "ec2:CreateSecurityGroup"
+      ],
+      "Resource": "arn:aws:ec2:__REGION__:__ACCOUNT_ID__:vpc/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/Project": "__PREFIX__"
+        }
+      }
+    },
+    {
+      "Sid": "OwnSecurityGroupRules",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:AuthorizeSecurityGroupEgress",
+        "ec2:RevokeSecurityGroupEgress"
+      ],
+      "Resource": "arn:aws:ec2:__REGION__:__ACCOUNT_ID__:security-group-rule/*"
+    },
+    {
       "Sid": "TagOnCreate",
       "Effect": "Allow",
       "Action": "ec2:CreateTags",
