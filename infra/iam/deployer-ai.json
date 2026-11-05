@@ -146,7 +146,9 @@
         "bedrock-agentcore:GetWorkloadIdentity",
         "bedrock-agentcore:DeleteWorkloadIdentity",
         "bedrock-agentcore:GetWorkloadAccessToken",
-        "bedrock-agentcore:GetResourceOauth2Token"
+        "bedrock-agentcore:GetResourceOauth2Token",
+        "bedrock-agentcore:GetOauth2CredentialProvider",
+        "bedrock-agentcore:DeleteOauth2CredentialProvider"
       ],
       "Resource": [
         "arn:aws:bedrock-agentcore:__REGION__:__ACCOUNT_ID__:token-vault/default",
