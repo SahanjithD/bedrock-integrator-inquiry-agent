@@ -90,17 +90,34 @@ isolated function sendDecision(string caseId, int proposalVersion, "approve"|"re
 # + queueUrl - The DLQ URL
 # + return - Up to 10 messages, or an error
 isolated function peekDeadLetters(string queueUrl) returns json[]|error {
-    // VisibilityTimeout 0 leaves the messages on the queue for the next look.
-    sqs:Message[] messages = check queues->receiveMessage(queueUrl,
-        maxNumberOfMessages = 10, visibilityTimeout = 0, waitTimeSeconds = 1);
-    return from sqs:Message message in messages
-        let string body = message?.body ?: ""
-        let json|error parsed = body.fromJsonString()
-        select {
-            messageId: message?.messageId,
-            caseId: parsed is map<json> ? parsed["caseId"] : (),
-            body: parsed is json ? parsed : body
-        };
+    // One receive returns only some of the messages, so several are made. The short visibility
+    // timeout hides a message from the later receives and then leaves it on the queue for the
+    // next look. (With 0, one receive can return the same message several times.)
+    map<json> byId = {};
+    int emptyRounds = 0;
+    foreach int round in 0 ..< 6 {
+        sqs:Message[] messages = check queues->receiveMessage(queueUrl,
+            maxNumberOfMessages = 10, visibilityTimeout = 2, waitTimeSeconds = 1);
+        int before = byId.length();
+        foreach sqs:Message message in messages {
+            string id = message?.messageId ?: "";
+            if byId.hasKey(id) || byId.length() >= 10 {
+                continue;
+            }
+            string body = message?.body ?: "";
+            json|error parsed = body.fromJsonString();
+            byId[id] = {
+                messageId: id,
+                caseId: parsed is map<json> ? parsed["caseId"] : (),
+                body: parsed is json ? parsed : body
+            };
+        }
+        emptyRounds = byId.length() == before ? emptyRounds + 1 : 0;
+        if emptyRounds == 2 || byId.length() >= 10 {
+            break;
+        }
+    }
+    return byId.toArray();
 }
 
 # Reads the sample inquiries.

@@ -42,7 +42,7 @@ copy `Config.toml.example`.
 | `GET /cases` | | Lists cases with their status, most recently updated first |
 | `GET /cases/{caseId}` | | Shows one case: status, findings, proposed fix, draft reply and, once applied, the write tool's response |
 | `POST /cases/{caseId}/decision` | `{"decision": "approve"}` or `{"decision": "reject"}`, with an optional `"representative"` | Sends `{caseId, decision, proposalVersion, decidedBy}` to the decisions queue. Returns `409` unless the case is `PENDING_APPROVAL`, `400` if there is no representative |
-| `GET /failures` | | Lists up to 10 messages in each dead-letter queue, without removing them |
+| `GET /failures` | | Lists up to 10 messages in each dead-letter queue, without removing them. SQS cannot list a queue exactly, so this is a best-effort sample from a few receives; a message read here stays hidden for 2 seconds, then reappears |
 
 For a free-text inquiry, `customerRef`, `channel` and `context` are optional. `customerRef`
 defaults to `G-UNSPECIFIED`. Samples 1-3 come from `../data/sample-inquiries.json`.
