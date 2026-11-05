@@ -21,6 +21,13 @@ Parameters:
   ApplierProviderSecretArn:
     Type: String
     Description: Secret that AgentCore Identity created for the applier credential provider.
+  PermissionsBoundaryArn:
+    Type: String
+    Default: ""
+    Description: Optional permissions boundary for every IAM role in this stack. Leave empty for none.
+
+Conditions:
+  HasPermissionsBoundary: !Not [!Equals [!Ref PermissionsBoundaryArn, ""]]
 
 Resources:
   AgentRepository:
@@ -36,6 +43,7 @@ Resources:
   AgentRuntimeRole:
     Type: AWS::IAM::Role
     Properties:
+      PermissionsBoundary: !If [HasPermissionsBoundary, !Ref PermissionsBoundaryArn, !Ref AWS::NoValue]
       RoleName: !Sub ${ProjectName}-agent-runtime
       AssumeRolePolicyDocument:
         Version: "2012-10-17"

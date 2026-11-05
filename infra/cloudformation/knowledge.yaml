@@ -11,6 +11,13 @@ Parameters:
   FoundationStackName:
     Type: String
     Default: inquiry-agent-foundation
+  PermissionsBoundaryArn:
+    Type: String
+    Default: ""
+    Description: Optional permissions boundary for every IAM role in this stack. Leave empty for none.
+
+Conditions:
+  HasPermissionsBoundary: !Not [!Equals [!Ref PermissionsBoundaryArn, ""]]
 
 Resources:
   # Personal data is masked in model output (findings and draft replies). Input is checked
@@ -58,6 +65,7 @@ Resources:
   KnowledgeBaseRole:
     Type: AWS::IAM::Role
     Properties:
+      PermissionsBoundary: !If [HasPermissionsBoundary, !Ref PermissionsBoundaryArn, !Ref AWS::NoValue]
       RoleName: !Sub ${ProjectName}-knowledge-base
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
