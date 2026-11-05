@@ -39,8 +39,11 @@ Each policy is below the 6,144-character limit for a managed policy.
   `bedrock-agentcore`. With `PERMISSIONS_BOUNDARY_ARN` set in `env.sh`, the rendered policy also
   requires that boundary on every role it creates, and every template attaches it.
 - **Not scoped:** read-only list and describe calls, `ecr:GetAuthorizationToken`,
-  `ecs:RegisterTaskDefinition` (tag condition only), and creating the ECS service-linked role if
-  the account does not have it yet.
+  `ecs:RegisterTaskDefinition` (tag condition only), creating the ECS service-linked role if
+  the account does not have it yet, and `bedrock-agentcore:CreateAgentRuntimeEndpoint` on
+  `runtime/*`. `CreateAgentRuntime` creates the runtime's `DEFAULT` endpoint and checks that
+  action against `runtime/*`, before the runtime has an ID, so a prefix cannot scope it. Reading,
+  updating and deleting endpoints stays limited to your own runtimes.
 
 ## Check before you rely on them
 

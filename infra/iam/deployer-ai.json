@@ -85,6 +85,12 @@
       }
     },
     {
+      "Sid": "CreateRuntimeDefaultEndpoint",
+      "Effect": "Allow",
+      "Action": "bedrock-agentcore:CreateAgentRuntimeEndpoint",
+      "Resource": "arn:aws:bedrock-agentcore:__REGION__:__ACCOUNT_ID__:runtime/*"
+    },
+    {
       "Sid": "OwnAgentCoreResources",
       "Effect": "Allow",
       "Action": [
@@ -94,6 +100,10 @@
         "bedrock-agentcore:InvokeAgentRuntime",
         "bedrock-agentcore:InvokeAgentRuntimeForUser",
         "bedrock-agentcore:ListAgentRuntimeEndpoints",
+        "bedrock-agentcore:GetAgentRuntimeEndpoint",
+        "bedrock-agentcore:UpdateAgentRuntimeEndpoint",
+        "bedrock-agentcore:DeleteAgentRuntimeEndpoint",
+        "bedrock-agentcore:ListAgentRuntimeVersions",
         "bedrock-agentcore:GetGateway",
         "bedrock-agentcore:UpdateGateway",
         "bedrock-agentcore:DeleteGateway",
