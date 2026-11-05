@@ -183,8 +183,16 @@ empty_bucket() {
 # Deploys a CloudFormation stack with the sample's tags, the optional permissions boundary, and
 # any extra arguments (for example --capabilities and --parameter-overrides).
 deploy_stack() {
-    local stack="$1" template="$2"
+    local stack="$1" template="$2" status
     shift 2
+    # A stack whose first creation failed is left in ROLLBACK_COMPLETE and cannot be updated.
+    status="$(aws cloudformation describe-stacks --stack-name "${stack}" \
+        --query 'Stacks[0].StackStatus' --output text 2>/dev/null || true)"
+    if [[ "${status}" == "ROLLBACK_COMPLETE" ]]; then
+        warn "Stack ${stack} failed when it was first created; deleting it to create it again"
+        aws cloudformation delete-stack --stack-name "${stack}"
+        aws cloudformation wait stack-delete-complete --stack-name "${stack}"
+    fi
     aws cloudformation deploy \
         --stack-name "${stack}" \
         --template-file "${template}" \
