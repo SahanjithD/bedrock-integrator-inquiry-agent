@@ -277,7 +277,6 @@ Check its output for anything it reports as skipped.
   - the AgentCore CLI request shapes (runtimes, gateway, targets, OAuth credential providers),
   - the `WorkloadAccessToken` header AgentCore Runtime passes to the agent, and the IAM actions
     for the runtime user ID (`InvokeAgentRuntimeForUser`) and for `GetResourceOauth2Token`,
-  - the runtime endpoint URL used for gateway targets,
   - the gateway tool-name prefix (`<target>___<tool>`),
   - IAM details for managed knowledge bases and the gateway,
   - how the DynamoDB connector reports a failed condition,

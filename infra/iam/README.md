@@ -47,6 +47,12 @@ Each policy is below the 6,144-character limit for a managed policy.
   deleting endpoints and workload identities stays limited to your own. `TagResource` is allowed
   on any AgentCore resource only when the request sets `Project=<prefix>`, for tagging at
   creation; AgentCore access is granted by name, not by that tag.
+- **Adding a gateway target uses your permissions.** When a target with OAuth is added, the
+  gateway checks it at once with the caller's identity: it gets a workload access token for the
+  gateway's workload identity, exchanges it for an OAuth token through the credential provider
+  (which reads the provider's secret), and lists the MCP server's tools. That is why the deployer
+  needs `GetWorkloadAccessToken`, `GetResourceOauth2Token` and `secretsmanager:GetSecretValue` on
+  its own workload identities, credential providers and their secrets.
 
 ## Check before you rely on them
 
