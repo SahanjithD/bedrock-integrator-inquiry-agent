@@ -7,8 +7,8 @@
 #   4. The gateway. Inbound: Cognito client-credentials tokens from the investigator and applier
 #      clients. Outbound: an AgentCore Identity OAuth credential provider that uses the
 #      gateway-outbound Cognito client.
-# TODO(verify): request fields against `aws bedrock-agentcore-control <command> help`, and the
-# runtime endpoint URL format used for MCP server targets.
+# The requests below and the runtime endpoint URL used for the targets work against AWS: each
+# target is READY only after the gateway has listed the MCP server's tools through it.
 source "$(dirname "$0")/lib.sh"
 require aws docker jq
 need CognitoDiscoveryUrl UserPoolId InvestigatorClientId ApplierClientId GatewayOutboundClientId
