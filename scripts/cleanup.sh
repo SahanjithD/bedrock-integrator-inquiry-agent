@@ -2,7 +2,7 @@
 # Deletes everything the deploy scripts created, in reverse order. Safe to re-run: steps
 # whose resources are already gone are skipped.
 source "$(dirname "$0")/lib.sh"
-require aws python3
+require aws jq
 
 try() { "$@" >/dev/null 2>&1 || warn "Skipped (already gone or failed): $*"; }
 
@@ -92,13 +92,8 @@ delete_stack "${KNOWLEDGE_STACK}"
 
 # --- Step 1: foundation --------------------------------------------------------
 if [[ -n "${KnowledgeBucketName:-}" ]]; then
-    log "Emptying s3://${KnowledgeBucketName} (all object versions)"
-    BUCKET="${KnowledgeBucketName}" python3 - <<'PY' || warn "Could not empty the bucket"
-import os
-import boto3
-bucket = boto3.resource("s3").Bucket(os.environ["BUCKET"])
-bucket.object_versions.delete()
-PY
+    log "Emptying s3://${KnowledgeBucketName} (all object versions and delete markers)"
+    empty_bucket "${KnowledgeBucketName}" || warn "Could not empty the bucket"
 fi
 
 delete_stack "${FOUNDATION_STACK}"

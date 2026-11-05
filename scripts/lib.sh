@@ -123,3 +123,20 @@ delete_images() {
         aws ecr batch-delete-image --repository-name "${repository}" --image-ids "${ids}" >/dev/null
     fi
 }
+
+# Deletes every object version and delete marker in a bucket, 1,000 at a time, so CloudFormation
+# can delete the bucket. Works for versioned and unversioned buckets.
+empty_bucket() {
+    local bucket="$1" batch
+    while true; do
+        batch="$(aws s3api list-object-versions --bucket "${bucket}" --max-items 1000 --output json \
+            | jq -c '{Objects: (((.Versions // []) + (.DeleteMarkers // []))
+                       | map({Key, VersionId}) | .[:1000]), Quiet: true}')"
+        local count
+        count="$(jq '.Objects | length' <<<"${batch}" 2>/dev/null || true)"
+        if [[ -z "${count}" || "${count}" == "0" ]]; then
+            return 0
+        fi
+        aws s3api delete-objects --bucket "${bucket}" --delete "${batch}" >/dev/null
+    done
+}

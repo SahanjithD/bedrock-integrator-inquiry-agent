@@ -14,5 +14,3 @@ Config.toml
 .deploy/
 scripts/env.sh
 
-# Python
-__pycache__/
