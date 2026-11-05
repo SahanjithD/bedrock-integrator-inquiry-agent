@@ -63,10 +63,10 @@ API reference for your AWS CLI version:
 
 - `knowledge-base/knowledge-base-configuration.json` and `custom-data-source.json` mirror the
   requests the Ballerina module sends for a `MANAGED` knowledge base and its custom source.
-- `knowledge-base/s3-data-source.json`: **TODO(verify)** the connector parameters for an S3
-  source on a managed knowledge base (`type`, `version`, `bucketArn`, `inclusionPrefixes`).
-  If they differ, add the S3 source in the console (prefix `knowledge/`) and set
-  `S3DataSourceId` in `.deploy/outputs.env`.
+- `knowledge-base/s3-data-source.json` follows the S3 connector for managed knowledge bases:
+  `connectionConfiguration.bucketName` and `filterConfiguration.inclusionPrefixes`
+  (`knowledge/`). Data sources are created asynchronously; `02-knowledge-base.sh` waits until
+  each is `AVAILABLE`, and creates one again if it is `FAILED`.
 - `agentcore/mcp-runtime.json`, `inquiry-agent.json`: **TODO(verify)** field names for
   `bedrock-agentcore-control create-agent-runtime`, including `environmentVariables`.
 - `cloudformation/listener-ecs.yaml`: **TODO(verify)** whether `InvokeAgentRuntime` also needs

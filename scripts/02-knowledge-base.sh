@@ -45,33 +45,56 @@ wait_for "Knowledge base ${KnowledgeBaseId}" "ACTIVE" "FAILED|DELETE_UNSUCCESSFU
 aws bedrock-agent tag-resource --tags "${TAGS_JSON}" --resource-arn "$(aws bedrock-agent get-knowledge-base \
     --knowledge-base-id "${KnowledgeBaseId}" --query knowledgeBase.knowledgeBaseArn --output text)"
 
-if [[ -z "${CustomDataSourceId:-}" ]]; then
-    log "Creating custom data source for resolved cases"
-    ds_id="$(aws bedrock-agent create-data-source \
-        --knowledge-base-id "${KnowledgeBaseId}" \
-        --name resolved-cases \
-        --description "Resolved cases, written by the apply action" \
-        --data-source-configuration "file://${KB_TEMPLATES}/custom-data-source.json" \
-        --query dataSource.dataSourceId --output text)"
-    save CustomDataSourceId "${ds_id}"
-fi
+data_source_status() {
+    aws bedrock-agent get-data-source --knowledge-base-id "${KnowledgeBaseId}" --data-source-id "$1" \
+        --query dataSource.status --output text
+}
 
-if [[ -z "${S3DataSourceId:-}" ]]; then
-    log "Creating S3 data source for runbooks and policies"
-    # TODO(verify): connector parameters for an S3 source on a managed knowledge base. If this
-    # call is rejected, add the S3 source in the console (prefix knowledge/) and run:
-    #   echo "S3DataSourceId=<id>" >> .deploy/outputs.env
-    s3_config="$(jq --arg arn "arn:aws:s3:::${KnowledgeBucketName}" \
-        '.managedKnowledgeBaseConnectorConfiguration.connectorParameters.bucketArn = $arn' \
+# Creates a data source unless one is recorded under `key`, and waits until it is AVAILABLE.
+# Creation is asynchronous on a managed knowledge base. A recorded data source that FAILED is
+# deleted and created again, so a fixed request can be re-run.
+ensure_data_source() {
+    local key="$1" name="$2" description="$3" config="$4" id
+    id="${!key:-}"
+    if [[ -n "${id}" && "$(data_source_status "${id}" 2>/dev/null || true)" == "FAILED" ]]; then
+        warn "Data source ${name} (${id}) FAILED: $(aws bedrock-agent get-data-source \
+            --knowledge-base-id "${KnowledgeBaseId}" --data-source-id "${id}" \
+            --query 'dataSource.failureReasons' --output text)"
+        log "Deleting data source ${name} (${id}) to create it again"
+        aws bedrock-agent delete-data-source --knowledge-base-id "${KnowledgeBaseId}" \
+            --data-source-id "${id}" >/dev/null
+        local waited=0
+        while data_source_status "${id}" >/dev/null 2>&1; do
+            (( waited < 300 )) || die "Data source ${id} was not deleted within 5 minutes"
+            sleep 10
+            waited=$(( waited + 10 ))
+        done
+        forget "${key}"
+        id=""
+    fi
+    if [[ -z "${id}" ]]; then
+        log "Creating data source ${name}"
+        id="$(aws bedrock-agent create-data-source \
+            --knowledge-base-id "${KnowledgeBaseId}" \
+            --name "${name}" \
+            --description "${description}" \
+            --data-source-configuration "${config}" \
+            --query dataSource.dataSourceId --output text)"
+        save "${key}" "${id}"
+    fi
+    wait_for "Data source ${name} (${id})" "AVAILABLE" "FAILED|DELETE_UNSUCCESSFUL" \
+        data_source_status "${id}"
+}
+
+ensure_data_source CustomDataSourceId resolved-cases \
+    "Resolved cases, written by the apply action" \
+    "$(cat "${KB_TEMPLATES}/custom-data-source.json")"
+
+ensure_data_source S3DataSourceId runbooks-and-policies \
+    "Runbooks and policies under s3://${KnowledgeBucketName}/knowledge/" \
+    "$(jq --arg bucket "${KnowledgeBucketName}" \
+        '.managedKnowledgeBaseConnectorConfiguration.connectorParameters.connectionConfiguration.bucketName = $bucket' \
         "${KB_TEMPLATES}/s3-data-source.json")"
-    ds_id="$(aws bedrock-agent create-data-source \
-        --knowledge-base-id "${KnowledgeBaseId}" \
-        --name runbooks-and-policies \
-        --description "Runbooks and policies under s3://${KnowledgeBucketName}/knowledge/" \
-        --data-source-configuration "${s3_config}" \
-        --query dataSource.dataSourceId --output text)"
-    save S3DataSourceId "${ds_id}"
-fi
 
 log "Syncing the S3 data source"
 job_id="$(aws bedrock-agent start-ingestion-job \

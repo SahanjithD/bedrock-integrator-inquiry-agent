@@ -4,8 +4,12 @@
     "connectorParameters": {
       "type": "S3",
       "version": "1",
-      "bucketArn": "",
-      "inclusionPrefixes": ["knowledge/"]
+      "connectionConfiguration": {
+        "bucketName": ""
+      },
+      "filterConfiguration": {
+        "inclusionPrefixes": ["knowledge/"]
+      }
     }
   }
 }

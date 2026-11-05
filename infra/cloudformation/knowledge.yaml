@@ -86,19 +86,24 @@ Resources:
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
+              # The S3 connector lists the bucket itself; the data source's inclusion prefix
+              # (knowledge/) limits what it ingests. Objects can be read under knowledge/ only.
               - Effect: Allow
                 Action: s3:ListBucket
                 Resource:
                   Fn::ImportValue: !Sub ${FoundationStackName}-KnowledgeBucketArn
                 Condition:
-                  StringLike:
-                    s3:prefix: ["knowledge/*"]
+                  StringEquals:
+                    aws:ResourceAccount: !Ref AWS::AccountId
               - Effect: Allow
                 Action: s3:GetObject
                 Resource: !Sub
                   - ${BucketArn}/knowledge/*
                   - BucketArn:
                       Fn::ImportValue: !Sub ${FoundationStackName}-KnowledgeBucketArn
+                Condition:
+                  StringEquals:
+                    aws:ResourceAccount: !Ref AWS::AccountId
 
 Outputs:
   GuardrailId:
