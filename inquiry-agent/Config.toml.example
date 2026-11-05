@@ -6,7 +6,7 @@ awsRegion = "us-east-1"
 
 # Claude Sonnet 5.5 through the US cross-Region inference profile.
 modelId = "us.anthropic.claude-sonnet-5-5"
-maxTokens = 4096
+maxTokens = 16000
 maxIterations = 12
 # Well under the 15-minute limit of a synchronous InvokeAgentRuntime request.
 investigationTimeoutSeconds = 600

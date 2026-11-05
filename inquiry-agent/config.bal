@@ -10,8 +10,9 @@ configurable string awsRegion = "us-east-1";
 // https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-sonnet-5-5.html
 # Bedrock model or inference profile ID.
 configurable string modelId = "us.anthropic.claude-sonnet-5-5";
-# Upper limit on tokens per model response.
-configurable int maxTokens = 4096;
+# Upper limit on tokens per model response. Adaptive thinking counts toward it, so keep room for
+# the reasoning as well as the findings.
+configurable int maxTokens = 16000;
 # Upper limit on reasoning and tool-call cycles per investigation.
 configurable int maxIterations = 12;
 
