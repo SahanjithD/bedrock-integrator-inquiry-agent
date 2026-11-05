@@ -140,6 +140,7 @@
       "Effect": "Allow",
       "Action": [
         "bedrock-agentcore:GetTokenVault",
+        "bedrock-agentcore:CreateTokenVault",
         "bedrock-agentcore:CreateWorkloadIdentity",
         "bedrock-agentcore:GetWorkloadIdentity",
         "bedrock-agentcore:DeleteWorkloadIdentity"
