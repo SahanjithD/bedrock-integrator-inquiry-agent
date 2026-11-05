@@ -57,10 +57,14 @@ isolated function getCase(string caseId) returns map<json>?|error {
 # + return - Case summaries, or an error
 isolated function listCases() returns map<json>[]|error {
     stream<dynamodb:ScanOutput, dynamodb:Error?> items = check caseStore->scan({TableName: caseTable});
-    map<json>[] summaries = check from dynamodb:ScanOutput entry in items
-        let map<dynamodb:AttributeValue>? item = entry?.Item
-        where item is map<dynamodb:AttributeValue>
-        select core:caseSummary(core:caseView(attributes(item)));
+    map<json>[] summaries = [];
+    check from dynamodb:ScanOutput entry in items
+        do {
+            map<dynamodb:AttributeValue>? item = entry?.Item;
+            if item is map<dynamodb:AttributeValue> {
+                summaries.push(core:caseSummary(core:caseView(attributes(item))));
+            }
+        };
     return from map<json> summary in summaries
         order by summary["updatedAt"].toString() descending
         select summary;
