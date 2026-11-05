@@ -19,11 +19,15 @@ type CreateCaseRequest record {|
     string channel = "email";
     # Identifiers on file, e.g. {"reservationId": "R-48213"}
     map<string> context = {};
+    # The representative creating the case, instead of the configured default
+    string representative?;
 |};
 
 # Body of `POST /cases/{caseId}/decision`.
 type DecisionRequest record {|
     "approve"|"reject" decision;
+    # The representative deciding, instead of the configured default
+    string representative?;
 |};
 
 type ErrorBody record {|
@@ -49,6 +53,10 @@ service / on portalListener {
     # Creates a case and sends its investigation job.
     resource function post cases(@http:Payload CreateCaseRequest request)
             returns http:Created|http:BadRequest|http:InternalServerError {
+        string|error requestedBy = core:representative(request?.representative, representative);
+        if requestedBy is error {
+            return <http:BadRequest>{body: <ErrorBody>{message: requestedBy.message()}};
+        }
         string customerRef = request.customerRef;
         string channel = request.channel;
         map<string> context = request.context;
@@ -71,12 +79,12 @@ service / on portalListener {
             return <http:BadRequest>{body: <ErrorBody>{message: "Send {\"inquiry\": \"...\"} or {\"sample\": 1|2|3}"}};
         }
 
-        string|error caseId = createCase(customerRef, inquiry, channel, context);
+        string|error caseId = createCase(customerRef, inquiry, channel, context, requestedBy);
         if caseId is error {
             log:printError("Could not create the case", caseId);
             return <http:InternalServerError>{body: <ErrorBody>{message: caseId.message()}};
         }
-        log:printInfo("Case created", caseId = caseId);
+        log:printInfo("Case created", caseId = caseId, requestedBy = requestedBy);
         return <http:Created>{
             headers: {"Location": string `/cases/${caseId}`},
             body: {caseId, status: "QUEUED", inquiry}
@@ -109,7 +117,11 @@ service / on portalListener {
     # Approves or rejects the case's current proposal. Only cases awaiting approval accept a
     # decision; the message carries the proposal version shown to the representative.
     resource function post cases/[string caseId]/decision(@http:Payload DecisionRequest request)
-            returns http:Accepted|http:NotFound|http:Conflict|http:InternalServerError {
+            returns http:Accepted|http:BadRequest|http:NotFound|http:Conflict|http:InternalServerError {
+        string|error decidedBy = core:representative(request?.representative, representative);
+        if decidedBy is error {
+            return <http:BadRequest>{body: <ErrorBody>{message: decidedBy.message()}};
+        }
         map<json>?|error found = getCase(caseId);
         if found is error {
             return <http:InternalServerError>{body: <ErrorBody>{message: found.message()}};
@@ -126,12 +138,13 @@ service / on portalListener {
         }
         int version = <int>storedVersion;
 
-        core:DecisionMessage|error sent = sendDecision(caseId, version, request.decision);
+        core:DecisionMessage|error sent = sendDecision(caseId, version, request.decision, decidedBy);
         if sent is error {
             log:printError("Could not send the decision", sent, caseId = caseId);
             return <http:InternalServerError>{body: <ErrorBody>{message: sent.message()}};
         }
-        log:printInfo("Decision sent", caseId = caseId, decision = sent.decision, proposalVersion = version);
+        log:printInfo("Decision sent", caseId = caseId, decision = sent.decision, proposalVersion = version,
+                decidedBy = decidedBy);
         return <http:Accepted>{body: sent.toJson()};
     }
 

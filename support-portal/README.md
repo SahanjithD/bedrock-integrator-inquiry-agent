@@ -9,8 +9,13 @@ expects:
 
 - **Case item:** `caseId`, `status: QUEUED`, `job` (a JSON string), `createdAt` and
   `updatedAt`. The listener adds the findings and status changes.
-- **Job message:** `{caseId, customerRef, inquiry, channel, context, submittedAt}`.
-- **Decision message:** `{caseId, decision: "APPROVED" | "REJECTED", proposalVersion}`.
+- **Job message:** `{caseId, customerRef, inquiry, channel, context, submittedAt, requestedBy}`.
+- **Decision message:** `{caseId, decision: "APPROVED" | "REJECTED", proposalVersion, decidedBy}`.
+
+`requestedBy` and `decidedBy` name the representative. The listener passes them to the agent as
+the runtime user ID and stores `decidedBy` on the case. The portal has no sign-in: the name comes
+from the **Representative** box on the page or, if that is empty, from `representative` in
+`Config.toml` (`portal-config.sh` sets it to your login name).
 
 ## Run
 
@@ -33,10 +38,10 @@ copy `Config.toml.example`.
 | Method and path | Body | Does |
 | --- | --- | --- |
 | `GET /` | | The portal page (`static/index.html`) |
-| `POST /cases` | `{"sample": 1}` or `{"inquiry": "...", "customerRef": "G-10427"}` | Creates a case (`QUEUED`) and sends the job to the jobs queue. Returns `201` with the case ID |
+| `POST /cases` | `{"sample": 1}` or `{"inquiry": "...", "customerRef": "G-10427"}`, with an optional `"representative"` | Creates a case (`QUEUED`) and sends the job to the jobs queue. Returns `201` with the case ID |
 | `GET /cases` | | Lists cases with their status, most recently updated first |
 | `GET /cases/{caseId}` | | Shows one case: status, findings, proposed fix, draft reply and, once applied, the write tool's response |
-| `POST /cases/{caseId}/decision` | `{"decision": "approve"}` or `{"decision": "reject"}` | Sends `{caseId, decision, proposalVersion}` to the decisions queue. Returns `409` unless the case is `PENDING_APPROVAL` |
+| `POST /cases/{caseId}/decision` | `{"decision": "approve"}` or `{"decision": "reject"}`, with an optional `"representative"` | Sends `{caseId, decision, proposalVersion, decidedBy}` to the decisions queue. Returns `409` unless the case is `PENDING_APPROVAL`, `400` if there is no representative |
 | `GET /failures` | | Lists up to 10 messages in each dead-letter queue, without removing them |
 
 For a free-text inquiry, `customerRef`, `channel` and `context` are optional. `customerRef`

@@ -9,8 +9,25 @@ function buildsCaseId() returns error? {
 
 @test:Config
 function mapsDecisions() {
-    test:assertEquals(decisionMessage("CASE-1", "approve", 2), {caseId: "CASE-1", decision: "APPROVED", proposalVersion: 2});
-    test:assertEquals(decisionMessage("CASE-1", "reject", 1).decision, "REJECTED");
+    test:assertEquals(decisionMessage("CASE-1", "approve", 2, "rep-ana"),
+        {caseId: "CASE-1", decision: "APPROVED", proposalVersion: 2, decidedBy: "rep-ana"});
+    test:assertEquals(decisionMessage("CASE-1", "reject", 1, "rep-ana").decision, "REJECTED");
+}
+
+@test:Config
+function buildsJob() {
+    Job built = job("CASE-1", "G-15562", "Points missing", "email", {}, "2026-11-05T08:30:00Z", "rep-ana");
+    test:assertEquals(built.requestedBy, "rep-ana");
+}
+
+@test:Config
+function picksRepresentative() returns error? {
+    test:assertEquals(check representative(" rep-ben ", "rep-ana"), "rep-ben");
+    test:assertEquals(check representative((), "rep-ana"), "rep-ana");
+    test:assertEquals(check representative("  ", "rep-ana"), "rep-ana");
+    test:assertTrue(representative((), "") is error);
+    string tooLong = string:'join("", ...from int i in 0 ..< MAX_REPRESENTATIVE_LENGTH + 1 select "a");
+    test:assertTrue(representative(tooLong, "rep-ana") is error);
 }
 
 @test:Config

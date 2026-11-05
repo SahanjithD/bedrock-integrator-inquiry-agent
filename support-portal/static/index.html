@@ -23,6 +23,8 @@
   }
   header h1 { margin: 0; font-size: 17px; font-weight: 650; }
   header span { color: var(--muted); font-size: 13px; }
+  header label { margin-left: auto; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+  header label input { width: 180px; }
   main {
     display: grid; grid-template-columns: minmax(340px, 420px) 1fr; gap: 20px;
     padding: 20px 24px; max-width: 1400px; margin: 0 auto;
@@ -104,6 +106,7 @@
 <header>
   <h1>Guest Support</h1>
   <span>Inquiry cases &middot; investigated by the inquiry agent, approved by you &middot; synthetic data</span>
+  <label>Representative <input id="representative" maxlength="128" placeholder="Default from Config.toml"></label>
 </header>
 
 <main>
@@ -192,9 +195,21 @@
     return body;
   }
 
+  // The portal has no sign-in. The name is sent with each case and decision, and the listener
+  // passes it to the agent as the runtime user ID. Empty means the default from Config.toml.
+  const representativeInput = document.getElementById("representative");
+  representativeInput.value = localStorage.getItem("representative") || "";
+  representativeInput.addEventListener("change", () =>
+    localStorage.setItem("representative", representativeInput.value.trim()));
+
+  function withRepresentative(payload) {
+    const representative = representativeInput.value.trim();
+    return representative ? { ...payload, representative } : payload;
+  }
+
   async function createCase(payload) {
     try {
-      const created = await api("/cases", { method: "POST", body: JSON.stringify(payload) });
+      const created = await api("/cases", { method: "POST", body: JSON.stringify(withRepresentative(payload)) });
       toast("Created " + created.caseId);
       selected = created.caseId;
       await refresh();
@@ -204,7 +219,7 @@
   async function decide(caseId, decision) {
     try {
       const sent = await api(`/cases/${encodeURIComponent(caseId)}/decision`, {
-        method: "POST", body: JSON.stringify({ decision })
+        method: "POST", body: JSON.stringify(withRepresentative({ decision }))
       });
       toast((decision === "approve" ? "Approved" : "Rejected") + " proposal v" + sent.proposalVersion);
       await refresh();
@@ -266,7 +281,8 @@
     const parts = [
       el("div", { class: "detail-head" },
         el("h2", { text: item.caseId }), pill(item.status),
-        el("span", { class: "meta", text: [job.customerRef, job.channel, ago(item.updatedAt)].filter(Boolean).join(" · ") })),
+        el("span", { class: "meta", text: [job.customerRef, job.channel, job.requestedBy && "by " + job.requestedBy,
+          ago(item.updatedAt)].filter(Boolean).join(" · ") })),
       block("Guest message", el("blockquote", { text: job.inquiry || "" }))
     ];
 
@@ -287,6 +303,9 @@
       }
       parts.push(block(`Proposed change · version ${item.proposalVersion ?? "-"}`, renderProposal(item.proposedAction)));
       parts.push(block("Draft reply", el("div", { class: "reply", text: item.draftReply || findings.draftReply || "" })));
+    }
+    if (item.decidedBy) {
+      parts.push(block("Decided by", el("p", { text: item.decidedBy })));
     }
     if (item.applyResult) {
       parts.push(block("Write tool response", el("pre", { text: JSON.stringify(item.applyResult, null, 2) })));

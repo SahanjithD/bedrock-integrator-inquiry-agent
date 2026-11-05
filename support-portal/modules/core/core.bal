@@ -4,8 +4,9 @@
 // The item shapes and message formats match what the inquiry listener expects:
 //   case item: caseId, status, job (JSON string), createdAt, updatedAt; the listener adds
 //              findings, proposedAction, draftReply, proposalVersion, applyResult, failureReason
-//   job message: {caseId, customerRef, inquiry, channel, context, submittedAt}
-//   decision message: {caseId, decision: "APPROVED" | "REJECTED", proposalVersion}
+//   job message: {caseId, customerRef, inquiry, channel, context, submittedAt, requestedBy}
+//   decision message: {caseId, decision: "APPROVED" | "REJECTED", proposalVersion, decidedBy}
+// The listener sends `requestedBy` and `decidedBy` to the agent as the runtime user ID.
 
 import ballerina/time;
 
@@ -27,6 +28,8 @@ public type Job record {|
     string channel;
     map<string> context;
     string submittedAt;
+    # The representative who created the case
+    string requestedBy;
 |};
 
 # A decision, as the decisions queue carries it.
@@ -34,7 +37,12 @@ public type DecisionMessage record {|
     string caseId;
     "APPROVED"|"REJECTED" decision;
     int proposalVersion;
+    # The representative who decided
+    string decidedBy;
 |};
+
+# Longest representative name the inquiry listener accepts.
+public const int MAX_REPRESENTATIVE_LENGTH = 128;
 
 // Attributes stored as JSON strings on the case item.
 final readonly & string[] JSON_ATTRIBUTES = ["job", "findings", "proposedAction", "applyResult"];
@@ -59,15 +67,17 @@ isolated function pad(int value) returns string => value < 10 ? string `0${value
 # + channel - Where the inquiry came from
 # + context - Identifiers on file
 # + submittedAt - ISO 8601 time
+# + requestedBy - The representative who created the case
 # + return - The job
 public isolated function job(string id, string customerRef, string inquiry, string channel,
-        map<string> context, string submittedAt) returns Job => {
+        map<string> context, string submittedAt, string requestedBy) returns Job => {
     caseId: id,
     customerRef,
     inquiry,
     channel,
     context,
-    submittedAt
+    submittedAt,
+    requestedBy
 };
 
 # Maps the portal's `approve` / `reject` to the decision message.
@@ -75,13 +85,32 @@ public isolated function job(string id, string customerRef, string inquiry, stri
 # + caseId - The case ID
 # + decision - `approve` or `reject`
 # + proposalVersion - The proposal version shown to the representative
+# + decidedBy - The representative who decided
 # + return - The decision message
-public isolated function decisionMessage(string caseId, "approve"|"reject" decision, int proposalVersion)
-        returns DecisionMessage => {
+public isolated function decisionMessage(string caseId, "approve"|"reject" decision, int proposalVersion,
+        string decidedBy) returns DecisionMessage => {
     caseId,
     decision: decision == "approve" ? "APPROVED" : "REJECTED",
-    proposalVersion
+    proposalVersion,
+    decidedBy
 };
+
+# Picks the representative for a request: the name sent with it, otherwise the configured
+# default. The portal has no sign-in, so the name is not verified.
+#
+# + given - The name sent with the request, if any
+# + fallback - The configured default, `""` if none
+# + return - The trimmed name, or an error if there is none or it is too long
+public isolated function representative(string? given, string fallback) returns string|error {
+    string name = given is string && given.trim() != "" ? given.trim() : fallback.trim();
+    if name == "" {
+        return error("Enter the representative's name, or set `representative` in Config.toml");
+    }
+    if name.length() > MAX_REPRESENTATIVE_LENGTH {
+        return error(string `The representative's name is longer than ${MAX_REPRESENTATIVE_LENGTH} characters`);
+    }
+    return name;
+}
 
 # One DynamoDB attribute value, as far as the case item uses them.
 public type Attribute record {

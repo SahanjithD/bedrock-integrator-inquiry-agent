@@ -10,6 +10,9 @@ decisionQueueUrl = "https://sqs.us-east-1.amazonaws.com/<ACCOUNT_ID>/inquiry-age
 jobDeadLetterQueueUrl = "https://sqs.us-east-1.amazonaws.com/<ACCOUNT_ID>/inquiry-agent-jobs-dlq"
 decisionDeadLetterQueueUrl = "https://sqs.us-east-1.amazonaws.com/<ACCOUNT_ID>/inquiry-agent-decisions-dlq"
 
+# Representative named on cases and decisions when the page sends no name.
+representative = "rep-ana"
+
 # Paths relative to support-portal/.
 samplesFile = "../data/sample-inquiries.json"
 pageFile = "static/index.html"

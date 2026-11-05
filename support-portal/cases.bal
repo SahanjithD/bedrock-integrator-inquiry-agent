@@ -15,13 +15,14 @@ import ballerinax/aws.sqs;
 # + inquiry - The guest's message
 # + channel - Where the inquiry came from
 # + context - Identifiers on file
+# + requestedBy - The representative creating the case
 # + return - The new case ID, or an error
-isolated function createCase(string customerRef, string inquiry, string channel, map<string> context)
-        returns string|error {
+isolated function createCase(string customerRef, string inquiry, string channel, map<string> context,
+        string requestedBy) returns string|error {
     time:Utc now = time:utcNow();
     string id = core:caseId(now, uuid:createType4AsString());
     string submittedAt = time:utcToString(now);
-    core:Job job = core:job(id, customerRef, inquiry, channel, context, submittedAt);
+    core:Job job = core:job(id, customerRef, inquiry, channel, context, submittedAt, requestedBy);
 
     _ = check caseStore->createItem({
         TableName: caseTable,
@@ -75,10 +76,11 @@ isolated function listCases() returns map<json>[]|error {
 # + caseId - The case ID
 # + proposalVersion - The proposal version the representative reviewed
 # + decision - `approve` or `reject`
+# + decidedBy - The representative deciding
 # + return - The message sent, or an error
-isolated function sendDecision(string caseId, int proposalVersion, "approve"|"reject" decision)
-        returns core:DecisionMessage|error {
-    core:DecisionMessage message = core:decisionMessage(caseId, decision, proposalVersion);
+isolated function sendDecision(string caseId, int proposalVersion, "approve"|"reject" decision,
+        string decidedBy) returns core:DecisionMessage|error {
+    core:DecisionMessage message = core:decisionMessage(caseId, decision, proposalVersion, decidedBy);
     _ = check queues->sendMessage(decisionQueueUrl, message.toJsonString());
     return message;
 }

@@ -14,5 +14,6 @@ jobQueueUrl = "${JobQueueUrl}"
 decisionQueueUrl = "${DecisionQueueUrl}"
 jobDeadLetterQueueUrl = "${JobDeadLetterQueueUrl}"
 decisionDeadLetterQueueUrl = "${DecisionDeadLetterQueueUrl}"
+representative = "${USER:-support-rep}"
 TOML
 log "Wrote ${config}"

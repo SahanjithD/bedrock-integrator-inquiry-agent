@@ -15,6 +15,9 @@ configurable string decisionQueueUrl = ?;
 configurable string jobDeadLetterQueueUrl = ?;
 # Dead-letter queue of the decisions queue.
 configurable string decisionDeadLetterQueueUrl = ?;
+# Representative named on cases and decisions when the page sends no name. The listener passes
+# it to the agent as the runtime user ID.
+configurable string representative = "";
 # The three sample inquiries, relative to this directory.
 configurable string samplesFile = "../data/sample-inquiries.json";
 # The portal page, relative to this directory.
