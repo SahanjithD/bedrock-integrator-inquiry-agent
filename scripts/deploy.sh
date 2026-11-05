@@ -4,6 +4,7 @@
 set -euo pipefail
 dir="$(cd "$(dirname "$0")" && pwd)"
 
+"${dir}/00-preflight.sh"
 "${dir}/01-foundation.sh"
 "${dir}/02-knowledge-base.sh"
 "${dir}/03-mcp-servers.sh"
