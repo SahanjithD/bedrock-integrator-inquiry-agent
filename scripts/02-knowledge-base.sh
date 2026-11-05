@@ -93,8 +93,14 @@ ensure_data_source() {
             --query dataSource.dataSourceId --output text)"
         save "${key}" "${id}"
     fi
-    wait_for "Data source ${name} (${id})" "AVAILABLE" "FAILED|DELETE_UNSUCCESSFUL" \
+    # FAILED is not passed to wait_for, so the reason can be shown before stopping.
+    wait_for "Data source ${name} (${id})" "AVAILABLE|FAILED" "DELETE_UNSUCCESSFUL" \
         data_source_status "${id}"
+    if [[ "$(data_source_status "${id}")" == "FAILED" ]]; then
+        die "Data source ${name} (${id}) FAILED: $(aws bedrock-agent get-data-source \
+            --knowledge-base-id "${KnowledgeBaseId}" --data-source-id "${id}" \
+            --query 'dataSource.failureReasons' --output text)"
+    fi
 }
 
 ensure_data_source CustomDataSourceId resolved-cases \
