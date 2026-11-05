@@ -2,7 +2,9 @@
 // listener keeps cases in DynamoDB, and knowledge lives in the knowledge base.
 
 import ballerina/ai;
+import ballerina/http;
 import ballerinax/ai.aws.bedrock;
+import ballerinax/aws;
 import ballerinax/aws.auth;
 
 # Bedrock model, called through the Converse API with the guardrail on every request.
@@ -21,5 +23,11 @@ final bedrock:ManagedKnowledgeBase knowledgeBase = check new (
     rerankingModelType = bedrock:RERANKING_NONE
 );
 
-# Cognito client secrets for the gateway, read once at startup.
-final GatewayClientSecrets & readonly gatewaySecrets = check loadGatewayClientSecrets();
+# Credentials of the runtime's execution role, used to sign AgentCore Identity requests.
+final auth:CredentialProvider awsCredentials = check new (auth:DEFAULT_CREDENTIALS);
+
+# AgentCore data plane host, e.g. `bedrock-agentcore.us-east-1.amazonaws.com`.
+final string agentCoreHost = aws:resolveEndpointHost("bedrock-agentcore", awsRegion);
+
+# HTTP client for AgentCore Identity.
+final http:Client agentCore = check new ("https://" + agentCoreHost, {timeout: 30});

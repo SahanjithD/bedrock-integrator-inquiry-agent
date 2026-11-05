@@ -119,7 +119,8 @@ Resources:
 
   # ---------------------------------------------------------------------------
   # Cognito: client-credentials tokens for the gateway (inbound) and for the
-  # gateway's calls to the MCP runtimes (outbound).
+  # gateway's calls to the MCP runtimes (outbound). The client secrets are handed to AgentCore
+  # Identity credential providers by scripts/03-mcp-servers.sh and scripts/04-agent.sh.
   # ---------------------------------------------------------------------------
   UserPool:
     Type: AWS::Cognito::UserPool
@@ -190,13 +191,6 @@ Resources:
       TokenValidityUnits:
         AccessToken: minutes
 
-  GatewayClientSecrets:
-    Type: AWS::SecretsManager::Secret
-    Properties:
-      Name: !Sub ${ProjectName}/gateway-clients
-      Description: Cognito client secrets the inquiry agent on AgentCore Runtime uses to call the gateway.
-      SecretString: !Sub '{"investigatorClientSecret":"${InvestigatorClient.ClientSecret}","applierClientSecret":"${ApplierClient.ClientSecret}"}'
-
 Outputs:
   JobQueueUrl:
     Value: !Ref JobQueue
@@ -252,7 +246,3 @@ Outputs:
       Name: !Sub ${AWS::StackName}-ApplierClientId
   GatewayOutboundClientId:
     Value: !Ref GatewayOutboundClient
-  GatewayClientSecretsArn:
-    Value: !Ref GatewayClientSecrets
-    Export:
-      Name: !Sub ${AWS::StackName}-GatewayClientSecretsArn

@@ -1,20 +1,26 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >-
   Customer inquiry agent sample - container repository and execution role for the inquiry agent
-  on Amazon Bedrock AgentCore Runtime. Deployed by scripts/04-agent.sh, which then creates the
-  runtime from infra/agentcore/inquiry-agent.json with the AWS CLI.
+  on Amazon Bedrock AgentCore Runtime. Deployed by scripts/04-agent.sh after it creates the
+  agent's two AgentCore Identity credential providers, and before it creates the runtime from
+  infra/agentcore/inquiry-agent.json with the AWS CLI.
 
 Parameters:
   ProjectName:
     Type: String
     Default: inquiry-agent
-  FoundationStackName:
-    Type: String
-    Default: inquiry-agent-foundation
   GuardrailArn:
     Type: String
   KnowledgeBaseId:
     Type: String
+  InvestigatorProviderSecretArn:
+    Type: String
+    Description: >-
+      Secret that AgentCore Identity created for the investigator credential provider
+      (clientSecretArn.secretArn from create-oauth2-credential-provider).
+  ApplierProviderSecretArn:
+    Type: String
+    Description: Secret that AgentCore Identity created for the applier credential provider.
 
 Resources:
   AgentRepository:
@@ -25,7 +31,8 @@ Resources:
       ImageScanningConfiguration:
         ScanOnPush: true
 
-  # The agent's execution role. It has no access to SQS or DynamoDB.
+  # The agent's execution role. It has no access to SQS or DynamoDB, and it never reads the
+  # Cognito client secrets itself: AgentCore Identity does, on the role's behalf.
   AgentRuntimeRole:
     Type: AWS::IAM::Role
     Properties:
@@ -69,11 +76,34 @@ Resources:
                   - bedrock:GetDataSource
                   - bedrock:GetKnowledgeBaseDocuments
                 Resource: !Sub arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/${KnowledgeBaseId}
-              - Sid: ReadGatewayClientSecrets
+              # AgentCore Runtime issues a workload access token for the runtime user ID the
+              # listener sends, and the agent exchanges it for gateway tokens from its two
+              # credential providers.
+              # TODO(verify): the actions and resources AgentCore Identity checks for these calls.
+              - Sid: WorkloadIdentity
+                Effect: Allow
+                Action:
+                  - bedrock-agentcore:GetWorkloadAccessToken
+                  - bedrock-agentcore:GetWorkloadAccessTokenForJWT
+                  - bedrock-agentcore:GetWorkloadAccessTokenForUserId
+                Resource:
+                  - !Sub arn:aws:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:workload-identity-directory/default
+                  - !Sub arn:aws:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:workload-identity-directory/default/workload-identity/*
+              - Sid: GatewayTokens
+                Effect: Allow
+                Action: bedrock-agentcore:GetResourceOauth2Token
+                Resource:
+                  - !Sub arn:aws:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:workload-identity-directory/default
+                  - !Sub arn:aws:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:workload-identity-directory/default/workload-identity/*
+                  - !Sub arn:aws:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:token-vault/default
+                  - !Sub arn:aws:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:token-vault/default/*
+              # Only the agent's own two providers, not the gateway's outbound provider.
+              - Sid: CredentialProviderSecrets
                 Effect: Allow
                 Action: secretsmanager:GetSecretValue
                 Resource:
-                  Fn::ImportValue: !Sub ${FoundationStackName}-GatewayClientSecretsArn
+                  - !Ref InvestigatorProviderSecretArn
+                  - !Ref ApplierProviderSecretArn
               # Needed by AgentCore Runtime itself to pull the image and write the agent's logs.
               - Sid: PullImage
                 Effect: Allow

@@ -14,13 +14,22 @@ import ballerina/mcp;
 # Applies an approved proposal.
 #
 # + request - The invocation, already checked by `core:checkRequest`
+# + workloadAccessToken - The `WorkloadAccessToken` header, if present
 # + return - The response body, or an error
-isolated function applyApproved(core:InvocationRequest & readonly request) returns json|error {
+isolated function applyApproved(core:InvocationRequest & readonly request, string? workloadAccessToken)
+        returns json|error {
     string caseId = request.caseId;
     int version = check request?.proposalVersion.ensureType();
     core:ProposedAction action = check request?.proposedAction.ensureType();
 
-    json|error applyResult = callWriteTool(caseId, version, action);
+    // Without a token the write tool is never called, so the outcome is known.
+    string|error token = gatewayTokenForApply(workloadAccessToken);
+    if token is error {
+        return error core:AgentError(string `${action.tool} not called: ${token.message()}`, token,
+            code = core:APPLY_REJECTED);
+    }
+
+    json|error applyResult = callWriteTool(caseId, version, action, token);
     if applyResult is error {
         return error core:AgentError(string `${action.tool} failed: ${applyResult.message()}`, applyResult,
             code = core:APPLY_FAILED);
@@ -37,26 +46,28 @@ isolated function applyApproved(core:InvocationRequest & readonly request) retur
     return {status: "ok", caseId, applyResult, knowledgeBaseUpdated: ingested};
 }
 
-# Calls exactly one write tool through the gateway, with the applier client (write scope).
+# Gets a gateway token from the applier credential provider (write scope).
+#
+# + workloadAccessToken - The `WorkloadAccessToken` header, if present
+# + return - The access token, or an error
+isolated function gatewayTokenForApply(string? workloadAccessToken) returns string|error =>
+    gatewayToken(check workloadToken(workloadAccessToken), applierCredentialProvider, writeScopes);
+
+# Calls exactly one write tool through the gateway, with an applier token (write scope).
 #
 # + caseId - The case ID
 # + version - The approved proposal version
 # + action - The approved proposal
+# + token - The gateway access token
 # + return - The tool's response, or an error
-isolated function callWriteTool(string caseId, int version, core:ProposedAction action) returns json|error {
-    mcp:StreamableHttpClient gateway = check new (gatewayUrl,
-        auth = {
-            tokenUrl,
-            clientId: applierClientId,
-            clientSecret: gatewaySecrets.applierClientSecret,
-            scopes: writeScopes
-        },
-        timeout = 60
-    );
+isolated function callWriteTool(string caseId, int version, core:ProposedAction action, string token)
+        returns json|error {
+    mcp:StreamableHttpClient gateway = check new (gatewayUrl, auth = {token}, timeout = 60);
     check gateway->initialize({name: "inquiry-agent-apply", version: "0.1.0"});
 
     // Write tools are idempotent per approval ID.
-    record {} arguments = {...action.arguments, approvalId: core:approvalIdFor(caseId, version)};
+    map<json> arguments = {...action.arguments};
+    arguments["approvalId"] = core:approvalIdFor(caseId, version);
     mcp:CallToolResult result = check gateway->callTool({name: action.tool, arguments});
     error? closed = gateway->close();
     if closed is error {

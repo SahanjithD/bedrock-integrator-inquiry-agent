@@ -1,17 +1,61 @@
 #!/usr/bin/env bash
 # Step 4: the inquiry agent on Amazon Bedrock AgentCore Runtime (HTTP protocol, port 8080, ARM64).
-#   1. ECR repository and execution role (infra/cloudformation/agent-runtime.yaml).
-#   2. Build the ARM64 agent image and push it.
-#   3. Create or update the runtime (infra/agentcore/inquiry-agent.json). Settings go in
-#      BAL_CONFIG_DATA; no secrets are passed (the agent reads them from Secrets Manager with its
-#      execution role). The runtime uses IAM (SigV4) inbound auth, so only principals with
-#      bedrock-agentcore:InvokeAgentRuntime - here, the listener's task role - can call it.
+#   1. Two AgentCore Identity credential providers for the gateway: investigator (read scope)
+#      and applier (write scope). Each holds its Cognito client's secret; the agent never does.
+#   2. ECR repository and execution role (infra/cloudformation/agent-runtime.yaml). The role may
+#      read only these two providers' secrets.
+#   3. Build the ARM64 agent image and push it.
+#   4. Create or update the runtime (infra/agentcore/inquiry-agent.json). Settings go in
+#      BAL_CONFIG_DATA; no secrets are passed. The runtime uses IAM (SigV4) inbound auth, so only
+#      principals with bedrock-agentcore:InvokeAgentRuntime - here, the listener's task role - can
+#      call it. The listener sends a runtime user ID, so the runtime passes the agent a workload
+#      access token, which the agent exchanges for gateway tokens.
 # TODO(verify): request fields against `aws bedrock-agentcore-control create-agent-runtime help`.
 source "$(dirname "$0")/lib.sh"
 require aws docker jq
 need GuardrailId GuardrailArn GuardrailVersion KnowledgeBaseId CustomDataSourceId GatewayUrl \
-    CognitoTokenUrl InvestigatorClientId ApplierClientId GatewayClientSecretsArn
+    UserPoolId CognitoDiscoveryUrl InvestigatorClientId ApplierClientId
 
+# ---------------------------------------------------------------------------
+# Credential providers
+# ---------------------------------------------------------------------------
+# Creates one provider for a Cognito client, unless it already exists, and saves its name and
+# the ARN of the secret AgentCore Identity stores the client secret in.
+#   create_credential_provider <Investigator|Applier> <client ID>
+create_credential_provider() {
+    local role="$1" client_id="$2"
+    local name_key="${role}ProviderName" secret_key="${role}ProviderSecretArn"
+    if [[ -n "${!secret_key:-}" ]]; then
+        log "Credential provider ${!name_key} already exists"
+        return 0
+    fi
+    local name="${PROJECT_NAME}-${role,,}" client_secret request result
+    log "Creating credential provider ${name}"
+    client_secret="$(aws cognito-idp describe-user-pool-client \
+        --user-pool-id "${UserPoolId}" --client-id "${client_id}" \
+        --query UserPoolClient.ClientSecret --output text)"
+    request="$(jq \
+        --arg name "${name}" \
+        --arg discovery "${CognitoDiscoveryUrl}" \
+        --arg client "${client_id}" \
+        --arg secret "${client_secret}" \
+        '.name = $name
+         | .oauth2ProviderConfigInput.customOauth2ProviderConfig.oauthDiscovery.discoveryUrl = $discovery
+         | .oauth2ProviderConfigInput.customOauth2ProviderConfig.clientId = $client
+         | .oauth2ProviderConfigInput.customOauth2ProviderConfig.clientSecret = $secret' \
+        "${AGENTCORE_TEMPLATES}/oauth-provider.json")"
+    result="$(aws bedrock-agentcore-control create-oauth2-credential-provider --cli-input-json "${request}")"
+    unset client_secret request
+    save "${name_key}" "${name}"
+    save "${secret_key}" "$(jq -r .clientSecretArn.secretArn <<<"${result}")"
+}
+
+create_credential_provider Investigator "${InvestigatorClientId}"
+create_credential_provider Applier "${ApplierClientId}"
+
+# ---------------------------------------------------------------------------
+# Repository and execution role
+# ---------------------------------------------------------------------------
 log "Deploying stack ${AGENT_STACK} (repository and execution role)"
 aws cloudformation deploy \
     --stack-name "${AGENT_STACK}" \
@@ -19,13 +63,17 @@ aws cloudformation deploy \
     --capabilities CAPABILITY_NAMED_IAM \
     --parameter-overrides \
         "ProjectName=${PROJECT_NAME}" \
-        "FoundationStackName=${FOUNDATION_STACK}" \
         "GuardrailArn=${GuardrailArn}" \
         "KnowledgeBaseId=${KnowledgeBaseId}" \
+        "InvestigatorProviderSecretArn=${InvestigatorProviderSecretArn}" \
+        "ApplierProviderSecretArn=${ApplierProviderSecretArn}" \
     --no-fail-on-empty-changeset
 save_stack_outputs "${AGENT_STACK}"
 need AgentRepositoryUri AgentRuntimeRoleArn
 
+# ---------------------------------------------------------------------------
+# Image and runtime
+# ---------------------------------------------------------------------------
 image="${AgentRepositoryUri}:$(image_tag)"
 ecr_login "${AgentRepositoryUri%%/*}"
 build_and_push "${image}" "${REPO_ROOT}/inquiry-agent"
@@ -40,10 +88,8 @@ guardrailVersion = "${GuardrailVersion}"
 knowledgeBaseId = "${KnowledgeBaseId}"
 customDataSourceId = "${CustomDataSourceId}"
 gatewayUrl = "${GatewayUrl}"
-tokenUrl = "${CognitoTokenUrl}"
-investigatorClientId = "${InvestigatorClientId}"
-applierClientId = "${ApplierClientId}"
-clientSecretsArn = "${GatewayClientSecretsArn}"
+investigatorCredentialProvider = "${InvestigatorProviderName}"
+applierCredentialProvider = "${ApplierProviderName}"
 TOML
 )"
 

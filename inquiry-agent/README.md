@@ -18,6 +18,14 @@ therefore gives up on an investigation after `investigationTimeoutSeconds` (600 
 default) and returns an `InvestigationTimeout` error, which the listener retries. Keep this value
 well under 15 minutes.
 
+## Gateway tokens
+
+The inquiry listener names the representative as the runtime user ID, so AgentCore Runtime
+passes each request a workload access token in the `WorkloadAccessToken` header. The agent
+exchanges it with AgentCore Identity (`GetResourceOauth2Token`, M2M flow) for a gateway token
+from the investigator or applier credential provider (`identity.bal`). The Cognito client
+secrets stay in AgentCore Identity. A request without the header gets an `InvalidRequest` error.
+
 ## Actions
 
 **`investigate`**: request `{action, caseId, job}`. The agent is a stateless `ai:Agent`
@@ -26,8 +34,8 @@ well under 15 minutes.
 - the Bedrock Converse API (`ballerinax/ai.aws.bedrock`) with a guardrail that masks personal data,
 - `searchKnowledge`, which retrieves runbooks, policies and resolved cases from the managed
   knowledge base,
-- the gateway's read-only tools only (`ai:McpToolKit` with `permittedTools`), using the
-  investigator Cognito client, which has the read scope only.
+- the gateway's read-only tools only (`ai:McpToolKit` with `permittedTools`), with a token from
+  the investigator credential provider, whose Cognito client has the read scope only.
 
 It returns `{status: "ok", caseId, findings}`. `findings` holds the summary, evidence, root
 cause, at most one proposed change and a draft reply. Proposals are checked first
@@ -43,8 +51,8 @@ listener loads the approved proposal from the case item; the decision message ne
 it. The agent:
 
 1. checks that the tool is on the write list,
-2. calls exactly that one write tool through the gateway with the applier Cognito client
-   (write scope) and `approvalId = <caseId>#<proposalVersion>`,
+2. calls exactly that one write tool through the gateway with a token from the applier
+   credential provider (write scope) and `approvalId = <caseId>#<proposalVersion>`,
 3. adds a resolved-case summary to the knowledge base's custom data source,
 4. returns `{status: "ok", caseId, applyResult, knowledgeBaseUpdated}`.
 
@@ -57,7 +65,7 @@ The listener, not the agent, moves the case through `APPLYING`, `APPLIED` and `N
 | `service.bal` | HTTP listener and response shape |
 | `investigate.bal` | Investigation agent, time limit, and the `searchKnowledge` tool |
 | `apply.bal` | Write-tool call and knowledge base ingestion |
-| `secrets.bal` | Reads the Cognito client secrets from Secrets Manager (SigV4, runtime execution role) |
+| `identity.bal` | Gateway tokens from AgentCore Identity (SigV4, runtime execution role) |
 | `clients.bal`, `config.bal`, `prompts.bal` | Clients, settings, prompts |
 | `modules/core` | Types, tool lists, request and proposal checks (unit tested) |
 
@@ -72,7 +80,9 @@ docker buildx build --platform linux/arm64 -t inquiry-agent .
 ```
 
 To run locally, copy `Config.toml.example` to `Config.toml`, fill it in, and run `bal run` with
-AWS credentials that can reach the same resources. Then post a request:
+AWS credentials that can reach the same resources. A local run gets no `WorkloadAccessToken`
+header, so set `localWorkloadName` to a workload identity you created; the agent then fetches a
+workload access token for it and `localUserId`. Then post a request:
 
 ```bash
 curl -s localhost:8080/invocations -H 'content-type: application/json' -d '{"action":"investigate","caseId":"CASE-LOCAL-1","job":{"caseId":"CASE-LOCAL-1","customerRef":"G-15562","inquiry":"I stayed last weekend, but my loyalty points never showed up.","context":{"memberId":"M-77310"}}}'

@@ -25,6 +25,15 @@ if [[ -n "${AgentRuntimeId:-}" ]]; then
     forget AgentRuntimeId; forget AgentRuntimeArn; forget AgentImage
 fi
 
+for role in Investigator Applier; do
+    key="${role}ProviderName"
+    if [[ -n "${!key:-}" ]]; then
+        log "Deleting the ${role,,} credential provider"
+        try aws bedrock-agentcore-control delete-oauth2-credential-provider --name "${!key}"
+        forget "${key}"; forget "${role}ProviderSecretArn"
+    fi
+done
+
 # --- Step 3: gateway, MCP runtimes, repositories ------------------------------
 if [[ -n "${GatewayId:-}" ]]; then
     for key in ReservationTargetId LoyaltyTargetId PaymentTargetId; do
@@ -90,13 +99,6 @@ import boto3
 bucket = boto3.resource("s3").Bucket(os.environ["BUCKET"])
 bucket.object_versions.delete()
 PY
-fi
-
-if [[ -n "${GatewayClientSecretsArn:-}" ]]; then
-    # Without this, the secret name stays reserved for 30 days and a redeploy fails.
-    log "Deleting the gateway client secret without a recovery window"
-    try aws secretsmanager delete-secret --secret-id "${GatewayClientSecretsArn}" \
-        --force-delete-without-recovery
 fi
 
 delete_stack "${FOUNDATION_STACK}"

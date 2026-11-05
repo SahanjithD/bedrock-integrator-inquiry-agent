@@ -23,8 +23,8 @@ ${m.chunk.content.toString()}`;
     return string:'join("\n---\n", ...passages);
 }
 
-// Both futures below finish with a value, never an error, so `wait a | b` returns whichever
-// finishes first.
+// Both futures below return a value, not an error, so `wait a | b` returns whichever finishes
+// first. The wait can still yield an error if a strand panics.
 type InvestigationOutcome record {|
     core:Findings? findings = ();
     error? failure = ();
@@ -37,13 +37,19 @@ type TimedOut record {|
 # Runs one investigation within `investigationTimeoutSeconds`.
 #
 # + request - The invocation, already checked by `core:checkRequest`
+# + workloadAccessToken - The `WorkloadAccessToken` header, if present
 # + return - The response body, or an error
-isolated function investigate(core:InvocationRequest & readonly request) returns json|error {
+isolated function investigate(core:InvocationRequest & readonly request, string? workloadAccessToken)
+        returns json|error {
     core:InvestigationJob & readonly job = check request?.job.ensureType();
+    string workload = check workloadToken(workloadAccessToken);
 
-    future<InvestigationOutcome> work = start runInvestigation(job);
+    future<InvestigationOutcome> work = start runInvestigation(job, workload);
     future<TimedOut> timer = start timeoutAfter(investigationTimeoutSeconds);
-    InvestigationOutcome|TimedOut outcome = wait work | timer;
+    InvestigationOutcome|TimedOut|error outcome = wait work | timer;
+    if outcome is error {
+        return outcome;
+    }
     if outcome is TimedOut {
         // The investigation strand stops on its own at maxIterations or an HTTP timeout; its
         // result is discarded. The listener retries the job.
@@ -61,8 +67,9 @@ isolated function investigate(core:InvocationRequest & readonly request) returns
     return {status: "ok", caseId: request.caseId, findings: findings.toJson()};
 }
 
-isolated function runInvestigation(core:InvestigationJob & readonly job) returns InvestigationOutcome {
-    core:Findings|error findings = investigateJob(job);
+isolated function runInvestigation(core:InvestigationJob & readonly job, string workload)
+        returns InvestigationOutcome {
+    core:Findings|error findings = investigateJob(job, workload);
     return findings is error ? {failure: findings} : {findings};
 }
 
@@ -71,17 +78,13 @@ isolated function timeoutAfter(decimal seconds) returns TimedOut {
     return {};
 }
 
-isolated function investigateJob(core:InvestigationJob job) returns core:Findings|error {
+isolated function investigateJob(core:InvestigationJob job, string workload) returns core:Findings|error {
     // A fresh connection per job, limited to the read-only tools. The token comes from the
-    // investigator app client, which is granted only the read scope.
+    // investigator credential provider, whose Cognito client is granted only the read scope.
+    string token = check gatewayToken(workload, investigatorCredentialProvider, readScopes);
     ai:McpToolKit gatewayTools = check new (gatewayUrl, core:READ_TOOLS,
         {name: "inquiry-agent-investigate", version: "0.1.0"},
-        auth = {
-            tokenUrl,
-            clientId: investigatorClientId,
-            clientSecret: gatewaySecrets.investigatorClientSecret,
-            scopes: readScopes
-        }
+        auth = {token}
     );
 
     // `memory = ()` keeps the agent stateless: each run sees only this job and its tool results.

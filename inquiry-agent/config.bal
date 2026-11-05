@@ -1,6 +1,6 @@
 // Settings. On AgentCore Runtime they arrive in the `BAL_CONFIG_DATA` environment variable,
-// which scripts/04-agent.sh renders. No secrets go here: the Cognito client secrets are read
-// from AWS Secrets Manager at startup.
+// which scripts/04-agent.sh renders. No secrets go here: gateway tokens come from AgentCore
+// Identity credential providers, which hold the Cognito client secrets.
 
 # AWS Region for every AWS call.
 configurable string awsRegion = "us-east-1";
@@ -34,15 +34,18 @@ configurable int knowledgeResults = 5;
 
 # AgentCore Gateway MCP endpoint, e.g. `https://<gateway-id>.gateway.bedrock-agentcore.<region>.amazonaws.com/mcp`.
 configurable string gatewayUrl = ?;
-# Cognito token endpoint, e.g. `https://<domain>.auth.<region>.amazoncognito.com/oauth2/token`.
-configurable string tokenUrl = ?;
-# App client used by the investigate action (read scope only).
-configurable string investigatorClientId = ?;
-# App client used by the apply action (write scope only).
-configurable string applierClientId = ?;
+# AgentCore Identity credential provider for the investigate action (Cognito client with the read scope).
+configurable string investigatorCredentialProvider = ?;
+# AgentCore Identity credential provider for the apply action (Cognito client with the write scope).
+configurable string applierCredentialProvider = ?;
 # OAuth scopes requested by the investigate action.
-configurable string[] readScopes = ["inquiry-gateway/read"];
+configurable readonly & string[] readScopes = ["inquiry-gateway/read"];
 # OAuth scopes requested by the apply action.
-configurable string[] writeScopes = ["inquiry-gateway/write"];
-# Secrets Manager secret with `investigatorClientSecret` and `applierClientSecret`.
-configurable string clientSecretsArn = ?;
+configurable readonly & string[] writeScopes = ["inquiry-gateway/write"];
+
+// On AgentCore Runtime the workload access token arrives with each request. For a local run,
+// which has no such header, the agent fetches one for this workload identity and user instead.
+# Workload identity used for local runs only. Leave empty on AgentCore Runtime.
+configurable string localWorkloadName = "";
+# User ID used for local runs only.
+configurable string localUserId = "local-developer";

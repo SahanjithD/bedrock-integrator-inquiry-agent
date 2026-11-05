@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Step 1: SQS queues with DLQs, the DynamoDB case table, the knowledge bucket, and Cognito
-# machine clients (with their secrets in Secrets Manager).
+# machine clients. Their secrets go to AgentCore Identity credential providers in steps 3 and 4.
 source "$(dirname "$0")/lib.sh"
 require aws
 

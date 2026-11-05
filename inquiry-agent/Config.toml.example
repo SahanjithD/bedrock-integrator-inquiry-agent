@@ -1,6 +1,6 @@
 # Copy to Config.toml for a local run. On AgentCore Runtime, scripts/04-agent.sh fills in the
 # values below and passes the result in the BAL_CONFIG_DATA environment variable.
-# No secrets here: the Cognito client secrets are read from Secrets Manager (clientSecretsArn).
+# No secrets here: gateway tokens come from AgentCore Identity credential providers.
 
 awsRegion = "us-east-1"
 
@@ -19,9 +19,14 @@ customDataSourceId = "<CUSTOM_DATA_SOURCE_ID>"
 knowledgeResults = 5
 
 gatewayUrl = "https://<GATEWAY_ID>.gateway.bedrock-agentcore.us-east-1.amazonaws.com/mcp"
-tokenUrl = "https://<COGNITO_DOMAIN>.auth.us-east-1.amazoncognito.com/oauth2/token"
-investigatorClientId = "<INVESTIGATOR_CLIENT_ID>"
-applierClientId = "<APPLIER_CLIENT_ID>"
+investigatorCredentialProvider = "inquiry-agent-investigator"
+applierCredentialProvider = "inquiry-agent-applier"
 readScopes = ["inquiry-gateway/read"]
 writeScopes = ["inquiry-gateway/write"]
-clientSecretsArn = "arn:aws:secretsmanager:us-east-1:<ACCOUNT_ID>:secret:inquiry-agent/gateway-clients-XXXXXX"
+
+# Local runs only: AgentCore Runtime passes a workload access token with each request, a local
+# run does not. Name a workload identity (for example one created with
+# `aws bedrock-agentcore-control create-workload-identity --name inquiry-agent-local`) and the
+# agent fetches a token for it and localUserId. Leave localWorkloadName out on AgentCore Runtime.
+localWorkloadName = "inquiry-agent-local"
+localUserId = "local-developer"
