@@ -280,9 +280,6 @@ Check its output for anything it reports as skipped.
   - the gateway tool-name prefix (`<target>___<tool>`),
   - IAM details for managed knowledge bases and the gateway,
   - how the DynamoDB connector reports a failed condition,
-  - the signed `InvokeAgentRuntime` request (checked against botocore's service model and
-    canonical request, not yet against a live runtime) and whether its IAM resource also needs
-    the endpoint ARN,
   - attaching one SQS service to several `sqs:Listener` objects, which the listener uses to
     bound concurrency,
   - the Ballerina and Java image tags,

@@ -69,10 +69,10 @@ API reference for your AWS CLI version:
   the same account), and `filterConfiguration.inclusionPrefixes`
   (`knowledge/`). Data sources are created asynchronously; `02-knowledge-base.sh` waits until
   each is `AVAILABLE`, and creates one again if it is `FAILED`.
-- `agentcore/mcp-runtime.json`, `inquiry-agent.json`: **TODO(verify)** field names for
-  `bedrock-agentcore-control create-agent-runtime`, including `environmentVariables`.
-- `cloudformation/listener-ecs.yaml`: **TODO(verify)** whether `InvokeAgentRuntime` also needs
-  the runtime endpoint ARN as a resource.
+- `agentcore/mcp-runtime.json`, `inquiry-agent.json` follow `create-agent-runtime`. Environment
+  variable values may not contain line breaks, so each agent setting is its own variable.
+- `cloudformation/listener-ecs.yaml`: `InvokeAgentRuntime` is checked against both the runtime
+  ARN and its endpoint ARN (`<runtime ARN>/runtime-endpoint/DEFAULT`), so the task role allows both.
 - `cloudformation/agent-runtime.yaml`: **TODO(verify)** the actions and resources AgentCore
   Identity checks for `GetResourceOauth2Token`, and that AgentCore Runtime passes the
   `WorkloadAccessToken` header when the caller sends a runtime user ID.

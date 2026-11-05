@@ -203,15 +203,16 @@ Resources:
                 Resource:
                   Fn::ImportValue: !Sub ${FoundationStackName}-CaseTableArn
               # Every call names the representative in the runtime user-ID header, which needs
-              # InvokeAgentRuntimeForUser as well.
-              # TODO(verify): whether InvokeAgentRuntime also needs the endpoint ARN
-              # (<runtime ARN>/runtime-endpoint/DEFAULT) as a resource.
+              # InvokeAgentRuntimeForUser as well. AgentCore checks both the runtime and the
+              # endpoint the call goes to (<runtime ARN>/runtime-endpoint/DEFAULT).
               - Sid: InvokeAgent
                 Effect: Allow
                 Action:
                   - bedrock-agentcore:InvokeAgentRuntime
                   - bedrock-agentcore:InvokeAgentRuntimeForUser
-                Resource: !Ref AgentRuntimeArn
+                Resource:
+                  - !Ref AgentRuntimeArn
+                  - !Sub ${AgentRuntimeArn}/runtime-endpoint/*
 
   # ---------------------------------------------------------------------------
   # Task definition and service
