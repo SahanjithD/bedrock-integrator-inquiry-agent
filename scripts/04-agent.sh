@@ -21,16 +21,20 @@ need GuardrailId GuardrailArn GuardrailVersion KnowledgeBaseId CustomDataSourceI
 # ---------------------------------------------------------------------------
 # Credential providers
 # ---------------------------------------------------------------------------
-# Creates one provider for a Cognito client, unless it already exists, and saves its name and
-# the ARN of the secret AgentCore Identity stores the client secret in.
+# Creates one provider for a Cognito client, unless it already exists, and saves its name, its
+# ARN and the ARN of the secret AgentCore Identity stores the client secret in.
 #   create_credential_provider <Investigator|Applier> <client ID>
 create_credential_provider() {
     local role="$1" client_id="$2"
-    local name_key="${role}ProviderName" secret_key="${role}ProviderSecretArn"
+    local name_key="${role}ProviderName" arn_key="${role}ProviderArn" secret_key="${role}ProviderSecretArn"
     if [[ -n "${!secret_key:-}" ]]; then
         log "Credential provider ${!name_key} already exists"
-        tag_agentcore "$(aws bedrock-agentcore-control get-oauth2-credential-provider --name "${!name_key}" \
-            --query credentialProviderArn --output text)"
+        # Provider ARNs follow a fixed format. Building it saves a lookup, which AgentCore also
+        # authorizes against the token vault.
+        if [[ -z "${!arn_key:-}" ]]; then
+            save "${arn_key}" "arn:aws:bedrock-agentcore:${AWS_REGION}:$(cut -d: -f5 <<<"${!secret_key}"):token-vault/default/oauth2credentialprovider/${!name_key}"
+        fi
+        tag_agentcore "${!arn_key}"
         return 0
     fi
     local name="${PROJECT_NAME}-$(lowercase "${role}")" client_secret request result
@@ -53,6 +57,7 @@ create_credential_provider() {
     result="$(aws bedrock-agentcore-control create-oauth2-credential-provider --cli-input-json "${request}")"
     unset client_secret request
     save "${name_key}" "${name}"
+    save "${arn_key}" "$(jq -r .credentialProviderArn <<<"${result}")"
     save "${secret_key}" "$(jq -r .clientSecretArn.secretArn <<<"${result}")"
 }
 
