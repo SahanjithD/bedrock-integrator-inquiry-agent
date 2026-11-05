@@ -122,6 +122,7 @@
         "bedrock-agentcore:DeleteGatewayTarget",
         "bedrock-agentcore:ListGatewayTargets",
         "bedrock-agentcore:GetOauth2CredentialProvider",
+        "bedrock-agentcore:GetResourceOauth2Token",
         "bedrock-agentcore:DeleteOauth2CredentialProvider",
         "bedrock-agentcore:TagResource",
         "bedrock-agentcore:UntagResource",
@@ -143,7 +144,9 @@
         "bedrock-agentcore:CreateTokenVault",
         "bedrock-agentcore:CreateWorkloadIdentity",
         "bedrock-agentcore:GetWorkloadIdentity",
-        "bedrock-agentcore:DeleteWorkloadIdentity"
+        "bedrock-agentcore:DeleteWorkloadIdentity",
+        "bedrock-agentcore:GetWorkloadAccessToken",
+        "bedrock-agentcore:GetResourceOauth2Token"
       ],
       "Resource": [
         "arn:aws:bedrock-agentcore:__REGION__:__ACCOUNT_ID__:token-vault/default",
@@ -159,6 +162,7 @@
         "secretsmanager:CreateSecret",
         "secretsmanager:DeleteSecret",
         "secretsmanager:DescribeSecret",
+        "secretsmanager:GetSecretValue",
         "secretsmanager:PutSecretValue",
         "secretsmanager:TagResource"
       ],
