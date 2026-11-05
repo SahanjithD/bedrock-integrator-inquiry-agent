@@ -45,32 +45,43 @@ wait_for "Knowledge base ${KnowledgeBaseId}" "ACTIVE" "FAILED|DELETE_UNSUCCESSFU
 aws bedrock-agent tag-resource --tags "${TAGS_JSON}" --resource-arn "$(aws bedrock-agent get-knowledge-base \
     --knowledge-base-id "${KnowledgeBaseId}" --query knowledgeBase.knowledgeBaseArn --output text)"
 
+# Prints a data source's status, or GONE if it does not exist.
 data_source_status() {
-    aws bedrock-agent get-data-source --knowledge-base-id "${KnowledgeBaseId}" --data-source-id "$1" \
-        --query dataSource.status --output text
+    local output
+    if output="$(aws bedrock-agent get-data-source --knowledge-base-id "${KnowledgeBaseId}" \
+            --data-source-id "$1" --query dataSource.status --output text 2>&1)"; then
+        printf '%s\n' "${output}"
+    elif [[ "${output}" == *ResourceNotFoundException* ]]; then
+        printf 'GONE\n'
+    else
+        printf '%s\n' "${output}" >&2
+        return 1
+    fi
 }
 
 # Creates a data source unless one is recorded under `key`, and waits until it is AVAILABLE.
-# Creation is asynchronous on a managed knowledge base. A recorded data source that FAILED is
-# deleted and created again, so a fixed request can be re-run.
+# Creation and deletion are asynchronous on a managed knowledge base. A recorded data source
+# that FAILED is deleted and created again, and one that no longer exists is created again.
 ensure_data_source() {
-    local key="$1" name="$2" description="$3" config="$4" id
+    local key="$1" name="$2" description="$3" config="$4" id status
     id="${!key:-}"
-    if [[ -n "${id}" && "$(data_source_status "${id}" 2>/dev/null || true)" == "FAILED" ]]; then
-        warn "Data source ${name} (${id}) FAILED: $(aws bedrock-agent get-data-source \
-            --knowledge-base-id "${KnowledgeBaseId}" --data-source-id "${id}" \
-            --query 'dataSource.failureReasons' --output text)"
-        log "Deleting data source ${name} (${id}) to create it again"
-        aws bedrock-agent delete-data-source --knowledge-base-id "${KnowledgeBaseId}" \
-            --data-source-id "${id}" >/dev/null
-        local waited=0
-        while data_source_status "${id}" >/dev/null 2>&1; do
-            (( waited < 300 )) || die "Data source ${id} was not deleted within 5 minutes"
-            sleep 10
-            waited=$(( waited + 10 ))
-        done
-        forget "${key}"
-        id=""
+    if [[ -n "${id}" ]]; then
+        status="$(data_source_status "${id}")" || die "Could not read data source ${name} (${id})"
+        if [[ "${status}" == "FAILED" ]]; then
+            warn "Data source ${name} (${id}) FAILED: $(aws bedrock-agent get-data-source \
+                --knowledge-base-id "${KnowledgeBaseId}" --data-source-id "${id}" \
+                --query 'dataSource.failureReasons' --output text)"
+            log "Deleting data source ${name} (${id}) to create it again"
+            aws bedrock-agent delete-data-source --knowledge-base-id "${KnowledgeBaseId}" \
+                --data-source-id "${id}" >/dev/null
+            wait_for "Deleting data source ${name} (${id})" "GONE" "DELETE_UNSUCCESSFUL" \
+                data_source_status "${id}"
+            status="GONE"
+        fi
+        if [[ "${status}" == "GONE" ]]; then
+            forget "${key}"
+            id=""
+        fi
     fi
     if [[ -z "${id}" ]]; then
         log "Creating data source ${name}"
