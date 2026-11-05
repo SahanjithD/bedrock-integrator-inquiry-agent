@@ -7,5 +7,5 @@
   "roleArn": "",
   "networkConfiguration": {"networkMode": "PUBLIC"},
   "protocolConfiguration": {"serverProtocol": "HTTP"},
-  "environmentVariables": {"BAL_CONFIG_DATA": ""}
+  "environmentVariables": {}
 }

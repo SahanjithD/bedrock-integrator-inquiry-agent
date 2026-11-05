@@ -35,9 +35,10 @@ request shapes are easy to review in one place.
 
 ## Inquiry agent on AgentCore Runtime
 
-- HTTP protocol, ARM64, port 8080. Settings reach the agent in `BAL_CONFIG_DATA`. It holds no
-  secrets: it gets gateway tokens from two AgentCore Identity credential providers, which
-  `scripts/04-agent.sh` creates before the stack.
+- HTTP protocol, ARM64, port 8080. Each setting reaches the agent in its own
+  `BAL_CONFIG_VAR_<NAME>` environment variable, because AgentCore Runtime rejects line breaks in
+  values. It holds no secrets: it gets gateway tokens from two AgentCore Identity credential
+  providers, which `scripts/04-agent.sh` creates before the stack.
 - Execution role (`agent-runtime.yaml`):
   - `bedrock:InvokeModel` on Anthropic models and US inference profiles,
   - `bedrock:ApplyGuardrail` on the guardrail,

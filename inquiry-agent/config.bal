@@ -1,5 +1,5 @@
-// Settings. On AgentCore Runtime they arrive in the `BAL_CONFIG_DATA` environment variable,
-// which scripts/04-agent.sh renders. No secrets go here: gateway tokens come from AgentCore
+// Settings. On AgentCore Runtime each one arrives in its own `BAL_CONFIG_VAR_<NAME>` environment
+// variable, which scripts/04-agent.sh sets. No secrets go here: gateway tokens come from AgentCore
 // Identity credential providers, which hold the Cognito client secrets.
 
 # AWS Region for every AWS call.

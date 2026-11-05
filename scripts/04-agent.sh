@@ -5,8 +5,10 @@
 #   2. ECR repository and execution role (infra/cloudformation/agent-runtime.yaml). The role may
 #      read only these two providers' secrets.
 #   3. Build the ARM64 agent image and push it.
-#   4. Create or update the runtime (infra/agentcore/inquiry-agent.json). Settings go in
-#      BAL_CONFIG_DATA; no secrets are passed. The runtime uses IAM (SigV4) inbound auth, so only
+#   4. Create or update the runtime (infra/agentcore/inquiry-agent.json). Each setting is its own
+#      BAL_CONFIG_VAR_<NAME> environment variable, because AgentCore Runtime rejects line breaks in
+#      environment variable values (so a multi-line BAL_CONFIG_DATA cannot be used). No secrets
+#      are passed. The runtime uses IAM (SigV4) inbound auth, so only
 #      principals with bedrock-agentcore:InvokeAgentRuntime - here, the listener's task role - can
 #      call it. The listener sends a runtime user ID, so the runtime passes the agent a workload
 #      access token, which the agent exchanges for gateway tokens.
@@ -81,29 +83,40 @@ ecr_login "${AgentRepositoryUri%%/*}"
 build_and_push "${image}" "${REPO_ROOT}/inquiry-agent"
 save AgentImage "${image}"
 
-config="$(cat <<TOML
-awsRegion = "${AWS_REGION}"
-modelId = "${MODEL_ID}"
-investigationTimeoutSeconds = 600
-guardrailId = "${GuardrailId}"
-guardrailVersion = "${GuardrailVersion}"
-knowledgeBaseId = "${KnowledgeBaseId}"
-customDataSourceId = "${CustomDataSourceId}"
-gatewayUrl = "${GatewayUrl}"
-investigatorCredentialProvider = "${InvestigatorProviderName}"
-applierCredentialProvider = "${ApplierProviderName}"
-TOML
-)"
+# Ballerina reads BAL_CONFIG_VAR_<NAME> for a configurable named <name> in the root module, with
+# the name in capitals. This works for simple values (strings, numbers, booleans) only.
+settings="$(jq -n \
+    --arg region "${AWS_REGION}" \
+    --arg model "${MODEL_ID}" \
+    --arg guardrail "${GuardrailId}" \
+    --arg guardrailVersion "${GuardrailVersion}" \
+    --arg knowledgeBase "${KnowledgeBaseId}" \
+    --arg dataSource "${CustomDataSourceId}" \
+    --arg gateway "${GatewayUrl}" \
+    --arg investigator "${InvestigatorProviderName}" \
+    --arg applier "${ApplierProviderName}" \
+    '{
+        BAL_CONFIG_VAR_AWSREGION: $region,
+        BAL_CONFIG_VAR_MODELID: $model,
+        BAL_CONFIG_VAR_INVESTIGATIONTIMEOUTSECONDS: "600",
+        BAL_CONFIG_VAR_GUARDRAILID: $guardrail,
+        BAL_CONFIG_VAR_GUARDRAILVERSION: $guardrailVersion,
+        BAL_CONFIG_VAR_KNOWLEDGEBASEID: $knowledgeBase,
+        BAL_CONFIG_VAR_CUSTOMDATASOURCEID: $dataSource,
+        BAL_CONFIG_VAR_GATEWAYURL: $gateway,
+        BAL_CONFIG_VAR_INVESTIGATORCREDENTIALPROVIDER: $investigator,
+        BAL_CONFIG_VAR_APPLIERCREDENTIALPROVIDER: $applier
+    }')"
 
 request="$(jq \
     --arg name "${PROJECT_NAME//-/_}_inquiry_agent" \
     --arg image "${image}" \
     --arg role "${AgentRuntimeRoleArn}" \
-    --arg config "${config}" \
+    --argjson settings "${settings}" \
     '.agentRuntimeName = $name
      | .agentRuntimeArtifact.containerConfiguration.containerUri = $image
      | .roleArn = $role
-     | .environmentVariables.BAL_CONFIG_DATA = $config' \
+     | .environmentVariables = $settings' \
     "${AGENTCORE_TEMPLATES}/inquiry-agent.json")"
 
 if [[ -z "${AgentRuntimeId:-}" ]]; then
