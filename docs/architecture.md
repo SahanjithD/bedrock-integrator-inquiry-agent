@@ -6,7 +6,7 @@
 
 | Component | Service | Role |
 | --- | --- | --- |
-| Support portal (stand-in) | `scripts/console.py` | Creates the case, sends the job, shows findings, sends the decision |
+| Support portal (stand-in) | `support-portal/` (WSO2 Integrator, runs locally) | Web page and REST API: creates the case, sends the job, shows findings, sends the decision |
 | Case item | Amazon DynamoDB | One item per case. Stands in for the ticket in the team's support system |
 | Jobs queue, decisions queue | Amazon SQS (standard, each with a DLQ) | Carry work from the portal |
 | Inquiry listener | WSO2 Integrator on Amazon ECS (Fargate, ARM64, one task) | Reads both queues, owns the case status, calls the agent |

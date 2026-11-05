@@ -42,10 +42,9 @@ This sample shows a pattern. It is not production ready. Review these points bef
 - Conditional updates make sure a proposal is applied at most once per approved version. A
   retry with an unknown outcome stops at `NEEDS_REVIEW` for a person to check.
 - Write tools are idempotent per `approvalId`.
-- The case records who decided (`decidedBy`), and that representative is the runtime user ID for
-  the apply call. The console takes the name from `--rep` without checking it. In production
-  the support system would take it from the signed-in user and enforce who may approve which
-  change.
+- The support portal runs on the reader's machine with their AWS credentials. It has no sign-in
+  and does not record who approved. In production the support system would authenticate
+  representatives, record the approver, and enforce who may approve which change.
 
 ## Not covered
 

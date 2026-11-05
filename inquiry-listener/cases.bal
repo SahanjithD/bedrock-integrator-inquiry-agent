@@ -2,7 +2,7 @@
 // same case (for example after a redelivery) can never both investigate or both apply it.
 //
 // Item attributes:
-//   caseId (S, key), status (S), job (S, JSON)                         - written by the console
+//   caseId (S, key), status (S), job (S, JSON)                         - written by the portal
 //   jobMessageId (S), attempts (N)                                      - investigation claim
 //   findings (S, JSON), proposedAction (S, JSON or "null"),
 //   draftReply (S), proposalVersion (N)                                 - investigation result

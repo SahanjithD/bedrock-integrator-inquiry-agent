@@ -5,9 +5,9 @@
 # AWS Region for every AWS call.
 configurable string awsRegion = "us-east-1";
 
-# Queue with investigation jobs from the support console.
+# Queue with investigation jobs from the support portal.
 configurable string jobQueueUrl = ?;
-# Queue with approve or reject decisions from the support console.
+# Queue with approve or reject decisions from the support portal.
 configurable string decisionQueueUrl = ?;
 
 // The listener waits for each agent call, which AgentCore Runtime ends after 15 minutes at

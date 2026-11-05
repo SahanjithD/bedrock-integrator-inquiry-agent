@@ -4,9 +4,9 @@
 # What the runtime is asked to do. The inquiry listener picks the action.
 public type Action "investigate"|"apply";
 
-# An investigation job, as the support console puts it on the jobs queue.
+# An investigation job, as the support portal puts it on the jobs queue.
 public type InvestigationJob record {|
-    # Case ID created by the support console, e.g. `CASE-20261103-1a2b3c`
+    # Case ID created by the support portal, e.g. `CASE-20261103-1a2b3c`
     string caseId;
     # Reference to the guest record the representative has open, e.g. `G-10427`
     string customerRef;
@@ -16,7 +16,7 @@ public type InvestigationJob record {|
     string channel = "email";
     # Optional identifiers the representative already has in front of them
     map<string> context = {};
-    # When the console submitted the job (ISO 8601)
+    # When the portal submitted the job (ISO 8601)
     string submittedAt?;
     # The representative who submitted the job (the runtime user ID)
     string requestedBy?;
