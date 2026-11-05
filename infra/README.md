@@ -64,7 +64,8 @@ API reference for your AWS CLI version:
 - `knowledge-base/knowledge-base-configuration.json` and `custom-data-source.json` mirror the
   requests the Ballerina module sends for a `MANAGED` knowledge base and its custom source.
 - `knowledge-base/s3-data-source.json` follows the S3 connector for managed knowledge bases:
-  `connectionConfiguration.bucketName` and `filterConfiguration.inclusionPrefixes`
+  `connectionConfiguration.bucketName` and `bucketOwnerAccountId` (required even for a bucket in
+  the same account), and `filterConfiguration.inclusionPrefixes`
   (`knowledge/`). Data sources are created asynchronously; `02-knowledge-base.sh` waits until
   each is `AVAILABLE`, and creates one again if it is `FAILED`.
 - `agentcore/mcp-runtime.json`, `inquiry-agent.json`: **TODO(verify)** field names for

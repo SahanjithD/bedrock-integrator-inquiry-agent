@@ -109,8 +109,9 @@ ensure_data_source CustomDataSourceId resolved-cases \
 
 ensure_data_source S3DataSourceId runbooks-and-policies \
     "Runbooks and policies under s3://${KnowledgeBucketName}/knowledge/" \
-    "$(jq --arg bucket "${KnowledgeBucketName}" \
-        '.managedKnowledgeBaseConnectorConfiguration.connectorParameters.connectionConfiguration.bucketName = $bucket' \
+    "$(jq --arg bucket "${KnowledgeBucketName}" --arg owner "$(cut -d: -f5 <<<"${KnowledgeBaseRoleArn}")" \
+        '.managedKnowledgeBaseConnectorConfiguration.connectorParameters.connectionConfiguration
+            |= (.bucketName = $bucket | .bucketOwnerAccountId = $owner)' \
         "${KB_TEMPLATES}/s3-data-source.json")"
 
 log "Syncing the S3 data source"

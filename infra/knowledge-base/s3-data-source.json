@@ -5,7 +5,8 @@
       "type": "S3",
       "version": "1",
       "connectionConfiguration": {
-        "bucketName": ""
+        "bucketName": "",
+        "bucketOwnerAccountId": ""
       },
       "filterConfiguration": {
         "inclusionPrefixes": ["knowledge/"]
