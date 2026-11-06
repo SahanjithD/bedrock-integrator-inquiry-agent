@@ -6,7 +6,7 @@
 //   jobMessageId (S), attempts (N)                                      - investigation claim
 //   findings (S, JSON), proposedAction (S, JSON or "null"),
 //   draftReply (S), proposalVersion (N)                                 - investigation result
-//   decidedBy (S)                                                       - decision
+//   decidedBy (S), applyMessageId (S)                                   - decision and apply claim
 //   applyResult (S, JSON), failureReason (S), createdAt (S), updatedAt (S)
 
 import inquiry_listener.core;
@@ -23,6 +23,8 @@ type StoredCase record {|
     string caseId;
     string status;
     int proposalVersion;
+    // The decision message that holds the apply claim, if any
+    string? applyMessageId;
     map<json>? findings;
     map<json>? proposedAction;
 |};
@@ -129,35 +131,41 @@ isolated function markRejected(string caseId, int proposalVersion, string decide
 }
 
 # Claims a case for applying: PENDING_APPROVAL -> APPLYING, if the version is still current.
+# The claim records the decision message, so only that message can finish the apply.
 #
 # + caseId - The case ID
 # + proposalVersion - The version the representative approved
 # + decidedBy - The representative who approved it
+# + messageId - The SQS message ID of the decision
 # + return - `true` if this call claimed the case, `false` if the condition did not hold
-isolated function claimForApply(string caseId, int proposalVersion, string decidedBy) returns boolean|error {
+isolated function claimForApply(string caseId, int proposalVersion, string decidedBy, string messageId)
+        returns boolean|error {
     return check conditionalUpdate(caseId,
-        "SET #status = :applying, decidedBy = :decidedBy, updatedAt = :now",
+        "SET #status = :applying, decidedBy = :decidedBy, applyMessageId = :messageId, updatedAt = :now",
         "#status = :pending AND proposalVersion = :version",
         {
             ":applying": {S: core:APPLYING},
             ":pending": {S: core:PENDING_APPROVAL},
             ":version": {N: proposalVersion.toString()},
-            ":decidedBy": {S: decidedBy}
+            ":decidedBy": {S: decidedBy},
+            ":messageId": {S: messageId}
         }) !is ();
 }
 
 # APPLYING -> APPLIED, storing the write tool's response.
 #
 # + caseId - The case ID
+# + messageId - The decision message that holds the apply claim
 # + applyResult - The write tool's response
-# + return - `true` if the case was still APPLYING, otherwise `false`
-isolated function markApplied(string caseId, json applyResult) returns boolean|error {
+# + return - `true` if the case was still APPLYING under this claim, otherwise `false`
+isolated function markApplied(string caseId, string messageId, json applyResult) returns boolean|error {
     return check conditionalUpdate(caseId,
         "SET #status = :applied, applyResult = :result, updatedAt = :now",
-        "#status = :applying",
+        "#status = :applying AND applyMessageId = :messageId",
         {
             ":applied": {S: core:APPLIED},
             ":applying": {S: core:APPLYING},
+            ":messageId": {S: messageId},
             ":result": {S: applyResult.toJsonString()}
         }) !is ();
 }
@@ -165,16 +173,36 @@ isolated function markApplied(string caseId, json applyResult) returns boolean|e
 # APPLYING -> NEEDS_REVIEW, because the outcome of a write is unknown.
 #
 # + caseId - The case ID
+# + messageId - The decision message that holds the apply claim
 # + reason - Why a person has to check the case
-# + return - `true` if the case was still APPLYING, otherwise `false`
-isolated function markNeedsReview(string caseId, string reason) returns boolean|error {
+# + return - `true` if the case was still APPLYING under this claim, otherwise `false`
+isolated function markNeedsReview(string caseId, string messageId, string reason) returns boolean|error {
     return check conditionalUpdate(caseId,
         "SET #status = :review, failureReason = :reason, updatedAt = :now",
-        "#status = :applying",
+        "#status = :applying AND applyMessageId = :messageId",
         {
             ":review": {S: core:NEEDS_REVIEW},
             ":applying": {S: core:APPLYING},
+            ":messageId": {S: messageId},
             ":reason": {S: truncate(reason, 1000)}
+        }) !is ();
+}
+
+# Stores the write tool's response on a case that went to NEEDS_REVIEW while the agent was
+# still applying it, so the person who reviews the case can see that the change was made.
+#
+# + caseId - The case ID
+# + messageId - The decision message that held the apply claim
+# + applyResult - The write tool's response
+# + return - `true` if the response was stored, otherwise `false`
+isolated function recordLateApplyResult(string caseId, string messageId, json applyResult) returns boolean|error {
+    return check conditionalUpdate(caseId,
+        "SET applyResult = :result, updatedAt = :now",
+        "#status = :review AND applyMessageId = :messageId",
+        {
+            ":review": {S: core:NEEDS_REVIEW},
+            ":messageId": {S: messageId},
+            ":result": {S: applyResult.toJsonString()}
         }) !is ();
 }
 
@@ -242,6 +270,7 @@ isolated function loadCase(string caseId) returns StoredCase|error {
         caseId,
         status: item["status"]?.S ?: "",
         proposalVersion: check int:fromString(item["proposalVersion"]?.N ?: "0"),
+        applyMessageId: item["applyMessageId"]?.S,
         findings,
         proposedAction
     };

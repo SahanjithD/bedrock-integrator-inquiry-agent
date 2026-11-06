@@ -62,7 +62,7 @@ isolated service on jobListener1, jobListener2, jobListener3, jobListener4, jobL
 isolated service on decisionListener1, decisionListener2 {
 
     isolated remote function onMessage(sqs:Caller caller, sqs:Message message) returns error? {
-        error? result = processDecision(message);
+        error? result = processDecision(message, message?.messageId ?: "");
         if result is error {
             log:printError("Decision failed; it will be retried", result, messageId = message?.messageId);
             retryLater(decisionQueueUrl, message);
@@ -89,14 +89,17 @@ isolated function processJob(sqs:Message message, string messageId) returns erro
     return handleJob(job, messageId);
 }
 
-isolated function processDecision(sqs:Message message) returns error? {
+isolated function processDecision(sqs:Message message, string messageId) returns error? {
+    if messageId == "" {
+        return error("The message has no ID");
+    }
     json body = check (message?.body ?: "").fromJsonString();
     core:Decision decision = check body.cloneWithType();
     string? problem = core:checkDecision(decision);
     if problem is string {
         return error(string `Invalid decision: ${problem}`);
     }
-    return handleDecision(decision);
+    return handleDecision(decision, messageId);
 }
 
 # Makes a failed message visible again sooner than its full visibility timeout.
