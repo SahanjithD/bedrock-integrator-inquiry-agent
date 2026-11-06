@@ -28,8 +28,8 @@ secrets stay in AgentCore Identity. A request without the header gets an `Invali
 
 ## Actions
 
-**`investigate`**: request `{action, caseId, job}`. The agent is a stateless `ai:Agent`
-(`memory = ()`). It uses:
+**`investigate`**: request `{action, caseId, job}`. Each job gets a new `ai:Agent` with its own
+in-memory history, so nothing carries over between jobs. It uses:
 
 - the Bedrock Converse API (`ballerinax/ai.aws.bedrock`) with a guardrail that masks personal data,
 - `searchKnowledge`, which retrieves runbooks, policies and resolved cases from the managed
@@ -38,8 +38,11 @@ secrets stay in AgentCore Identity. A request without the header gets an `Invali
   the investigator credential provider, whose Cognito client has the read scope only.
 
 It returns `{status: "ok", caseId, findings}`. `findings` holds the summary, evidence, root
-cause, at most one proposed change and a draft reply. Proposals are checked first
-(`modules/core/tools.bal`):
+cause, at most one proposed change and a draft reply. The model gives its final answer through a
+tool whose parameters are the findings schema. If the answer leaves out a required field or has
+a wrong value, the agent logs it and asks the model once, in the same conversation, to correct
+it, so the evidence is not gathered again (`modules/core/findings.bal`). Proposals are checked
+first (`modules/core/tools.bal`):
 
 - the tool must be a known write tool,
 - the required arguments must be present,

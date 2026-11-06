@@ -87,16 +87,16 @@ isolated function investigateJob(core:InvestigationJob job, string workload) ret
         auth = {token}
     );
 
-    // `memory = ()` keeps the agent stateless: each run sees only this job and its tool results.
+    // A new agent and memory per job: each run sees only this job and its tool results.
     ai:Agent agent = check new (
         systemPrompt = INVESTIGATOR_PROMPT,
         model = model,
         tools = [gatewayTools, searchKnowledge],
         maxIter = maxIterations,
-        memory = ()
+        memory = check core:jobMemory()
     );
 
-    core:Findings findings = check agent.run(investigationPrompt(job));
+    core:Findings findings = check core:runForFindings(agent, investigationPrompt(job), job.caseId, job.caseId);
     check core:validateProposal(findings);
     return findings;
 }

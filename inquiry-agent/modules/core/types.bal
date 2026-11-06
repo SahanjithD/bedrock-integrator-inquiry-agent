@@ -42,9 +42,10 @@ public type ProposedAction record {|
     string rationale;
 |};
 
-# What the investigate action returns. `ai:Agent.run` gives the model this type's JSON schema as
-# the parameters of its final-answer tool. The schema is written out because `ballerina/ai` does
-# not generate one for this record (it has an open `arguments` map and a defaulted field).
+# The model's final answer, before it is checked against `Findings`. `ai:Agent.run` gives the
+# model this schema as the parameters of its final-answer tool. The type itself accepts any JSON
+# object, so an answer with a missing or malformed field still reaches `runForFindings`, which
+# asks the model to correct it instead of discarding the investigation.
 @ai:JsonSchema {
     "type": "object",
     "additionalProperties": false,
@@ -85,6 +86,11 @@ public type ProposedAction record {|
         }
     }
 }
+public type FindingsAnswer record {|
+    json...;
+|};
+
+# What the investigate action returns: a final answer that matches the schema above.
 public type Findings record {|
     # Two or three sentences on what happened
     string summary;
