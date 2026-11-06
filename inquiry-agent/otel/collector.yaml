@@ -66,7 +66,7 @@ processors:
   # The resource attributes AgentCore Runtime sets in OTEL_RESOURCE_ATTRIBUTES. Without them,
   # CloudWatch does not group the spans under the agent. Locally the variable is unset and the
   # spans keep the service name from observability.toml.
-  resourcedetection/agentcore:
+  resource_detection/agentcore:
     detectors: [env]
     override: true
 
@@ -89,5 +89,5 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [filter/drop_health, attributes/genai_token_types, transform/genai_total_tokens, transform/scope_name, transform/genai_eval_aliases, resourcedetection/agentcore, transform/agentcore_origin, attributes/session_id]
+      processors: [filter/drop_health, attributes/genai_token_types, transform/genai_total_tokens, transform/scope_name, transform/genai_eval_aliases, resource_detection/agentcore, transform/agentcore_origin, attributes/session_id]
       exporters: [otlp_http]
