@@ -53,6 +53,8 @@ request shapes are easy to review in one place.
     knowledge base client calls,
   - ECR pull and CloudWatch Logs, which AgentCore Runtime needs to start the container and keep
     its logs.
+  - X-Ray write actions, for the collector in the agent's image that sends its traces to
+    CloudWatch.
 
   The role has no access to SQS or DynamoDB.
 
