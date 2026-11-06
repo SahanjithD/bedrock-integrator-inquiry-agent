@@ -86,15 +86,18 @@ Gateway --token from its own credential provider--> MCP server runtimes
    stored on the case.
 4. **Approved:**
    1. `PENDING_APPROVAL` → `APPLYING` with a conditional update (status and version must match),
-      storing `decidedBy`.
+      storing `decidedBy` and the decision's message ID (`applyMessageId`).
    2. Load the proposal and findings from the case (never from the message).
    3. Call the agent with `{action: "apply", caseId, proposalVersion, proposedAction, findings}`.
    4. The agent calls exactly that one write tool through the gateway with
       `approvalId = <caseId>#<proposalVersion>`, adds the resolved case to the knowledge base,
       and returns the tool's response.
-   5. `APPLYING` → `APPLIED`, storing the response. Then delete the message.
-5. If a redelivered decision finds the case already `APPLYING`, an earlier attempt may have
-   made the change. The listener does not call the agent again; it sets `NEEDS_REVIEW`.
+   5. `APPLYING` → `APPLIED`, storing the response. Then delete the message. Only the message
+      that holds the claim can make this change.
+5. If a redelivered decision finds the case already `APPLYING` under its own claim, an earlier
+   attempt may have made the change. The listener does not call the agent again; it sets
+   `NEEDS_REVIEW`. A second approval of the same proposal finds the case `APPLYING` under
+   another message's claim and is ignored, so it cannot interrupt the first one.
 6. If the agent call fails after the claim, the outcome is unknown, so the case goes to
    `NEEDS_REVIEW` and the decision is not retried.
 7. A decision that no longer matches the case (stale version, already decided) is logged and
@@ -128,6 +131,7 @@ QUEUED -> INVESTIGATING -> PENDING_APPROVAL -> APPLYING -> APPLIED
 | `draftReply` | S | listener, from the agent's answer |
 | `proposalVersion` | N | listener (incremented per saved investigation) |
 | `decidedBy` | S | listener, from the decision |
+| `applyMessageId` | S | listener (apply claim) |
 | `applyResult` | S (JSON) | listener, from the agent's answer |
 | `failureReason` | S | listener |
 | `createdAt`, `updatedAt` | S | portal, listener |

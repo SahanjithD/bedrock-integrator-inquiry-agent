@@ -50,8 +50,9 @@ the checking to an agent and keeps the correction with a person:
     for SQS to retry.
   - Apply: a rejection sets `REJECTED`. An approval claims the case (`PENDING_APPROVAL` →
     `APPLYING`), loads the proposal from the case (never from the message), calls the agent
-    with it, and sets `APPLIED`. If a retry finds the case already `APPLYING`, the case becomes
-    `NEEDS_REVIEW` and the agent is not called again.
+    with it, and sets `APPLIED`. If a retry of the same decision finds the case already
+    `APPLYING`, the case becomes `NEEDS_REVIEW` and the agent is not called again. A second
+    approval of the same proposal is ignored while the first is applied.
   - Five listeners serve the jobs queue and two the decisions queue, so one task keeps at most
     five investigations and two decisions open at once.
 - **Inquiry agent on Amazon Bedrock AgentCore Runtime:** a WSO2 Integrator HTTP service (ARM64,

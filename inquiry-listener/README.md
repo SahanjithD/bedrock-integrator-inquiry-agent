@@ -32,12 +32,17 @@ representative, stored on the case). It never carries an action.
 
 - **Rejected:** `PENDING_APPROVAL` → `REJECTED`, if the version is current.
 - **Approved:**
-  1. Claim: `PENDING_APPROVAL` → `APPLYING`, if the version is current.
-  2. If the case is already `APPLYING` (a redelivered decision), an earlier attempt may have
-     made the change. The agent is not called again; the case becomes `NEEDS_REVIEW`.
+  1. Claim: `PENDING_APPROVAL` → `APPLYING`, if the version is current. The claim records the
+     decision's message ID (`applyMessageId`).
+  2. If the case is already `APPLYING` under this message's claim (a redelivered decision), an
+     earlier attempt may have made the change. The agent is not called again; the case becomes
+     `NEEDS_REVIEW`. If it is `APPLYING` under another message's claim (a second approval of
+     the same proposal), the decision is ignored and the first approval finishes the apply.
   3. Load the proposal and findings from the case (never from the message) and call
      `InvokeAgentRuntime` with `{action: "apply", caseId, proposalVersion, proposedAction, findings}`.
-  4. `APPLYING` → `APPLIED`, storing the agent's answer (the write tool's response).
+  4. `APPLYING` → `APPLIED`, storing the agent's answer (the write tool's response). Only the
+     message that holds the claim can finish the apply. If a redelivery of that message already
+     set `NEEDS_REVIEW`, the answer is still stored on the case for the reviewer.
 
 If the agent call fails after the claim, the outcome is unknown: the case goes to
 `NEEDS_REVIEW` and the decision is not retried.
