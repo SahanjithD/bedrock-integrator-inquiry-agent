@@ -61,6 +61,26 @@ it. The agent:
 
 The listener, not the agent, moves the case through `APPLYING`, `APPLIED` and `NEEDS_REVIEW`.
 
+## Tracing
+
+The agent's spans go to CloudWatch, where **GenAI Observability** shows each investigation and
+apply with its model and tool calls. `ballerina/ai` records the spans, and Ballerina's
+OpenTelemetry exporter sends them to an OpenTelemetry Collector that runs in the same container
+(`otel/start.sh`). The collector signs them with the runtime role and sends them to the
+CloudWatch traces endpoint, which accepts only SigV4-signed requests. Its processors add what
+the dashboard reads, such as the runtime's resource attributes and integer token counts
+(`otel/collector.yaml`). The setup follows
+[Send traces to AWS X-Ray and CloudWatch](https://wso2.com/integration-platform/docs/integrator/observe/tracing).
+
+Before the first traces appear, once per account and Region:
+
+1. Enable CloudWatch Transaction Search, with spans ingested as structured logs.
+2. Turn on **Tracing** for the agent runtime in the AgentCore console.
+
+The spans carry the prompts, answers and tool results, including guest details. Anyone who can
+read the `aws/spans` log group can read them. A local run without AWS credentials has no
+collector, and the agent runs without tracing.
+
 ## Layout
 
 | File | Purpose |
@@ -71,6 +91,7 @@ The listener, not the agent, moves the case through `APPLYING`, `APPLIED` and `N
 | `identity.bal` | Gateway tokens from AgentCore Identity (SigV4, runtime execution role) |
 | `clients.bal`, `config.bal`, `prompts.bal` | Clients, settings, prompts |
 | `modules/core` | Types, tool lists, request and proposal checks (unit tested) |
+| `otel/` | Collector configuration, start script and tracing settings for the image |
 
 ## Build and test
 

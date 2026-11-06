@@ -1,0 +1,20 @@
+# Tracing and log settings, copied into the image as /app/Config.toml. They belong to the
+# ballerina/observe, ballerina/otel and ballerina/log modules, which BAL_CONFIG_VAR_* variables
+# cannot set. No secrets go here. The agent's own settings still arrive in BAL_CONFIG_VAR_*.
+
+[ballerina.observe]
+tracingEnabled = true
+tracingProvider = "otel"
+
+# The collector started by start.sh (collector.yaml).
+[ballerina.otel]
+tracesEndpoint = "http://127.0.0.1:4317"
+tracesProtocol = "grpc"
+
+# Replaced by the runtime's own name on AgentCore Runtime.
+[ballerina.otel.tracesResourceAttributes]
+"service.name" = "inquiry-agent"
+
+# JSON lines, each with the traceId and spanId of the request that wrote it.
+[ballerina.log]
+format = "json"
