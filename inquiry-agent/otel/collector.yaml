@@ -1,0 +1,93 @@
+# OpenTelemetry Collector (contrib), run next to the agent in the same container (start.sh).
+# The agent sends its spans here over OTLP gRPC on the loopback interface. The collector signs
+# them with the runtime role (SigV4) and sends them to the CloudWatch traces endpoint, which
+# accepts only signed requests. The processors fit the spans to what CloudWatch GenAI
+# Observability and AgentCore Evaluations read. Setup and reasons:
+# https://wso2.com/integration-platform/docs/integrator/observe/tracing
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 127.0.0.1:4317
+
+extensions:
+  sigv4auth:
+    region: ${env:AWS_REGION}
+    service: xray
+
+exporters:
+  otlp_http:
+    traces_endpoint: https://xray.${env:AWS_REGION}.amazonaws.com/v1/traces
+    auth:
+      authenticator: sigv4auth
+    compression: gzip
+
+processors:
+  # AgentCore Runtime polls /ping every few seconds; each poll would be a billed span.
+  filter/drop_health:
+    error_mode: ignore
+    traces:
+      span:
+        - 'attributes["http.url"] == "/ping"'
+
+  # Ballerina records token counts as strings.
+  attributes/genai_token_types:
+    actions:
+      - { key: gen_ai.usage.input_tokens, action: convert, converted_type: int }
+      - { key: gen_ai.usage.output_tokens, action: convert, converted_type: int }
+
+  transform/genai_total_tokens:
+    error_mode: ignore
+    trace_statements:
+      - context: span
+        statements:
+          - set(span.attributes["gen_ai.usage.total_tokens"], Int(span.attributes["gen_ai.usage.input_tokens"]) + Int(span.attributes["gen_ai.usage.output_tokens"])) where span.attributes["gen_ai.usage.input_tokens"] != nil and span.attributes["gen_ai.usage.output_tokens"] != nil
+
+  # AgentCore Evaluations reads only spans from an `opentelemetry.instrumentation.*` scope.
+  transform/scope_name:
+    error_mode: ignore
+    trace_statements:
+      - context: scope
+        statements:
+          - set(scope.name, "opentelemetry.instrumentation.ballerina") where scope.name == "otel"
+
+  # The attribute names AgentCore Evaluations reads for the prompt, answer and tool calls.
+  transform/genai_eval_aliases:
+    error_mode: ignore
+    trace_statements:
+      - context: span
+        statements:
+          - set(span.attributes["gen_ai.task.input"], span.attributes["gen_ai.input.messages"]) where span.attributes["gen_ai.operation.name"] == "invoke_agent" and span.attributes["gen_ai.input.messages"] != nil
+          - set(span.attributes["gen_ai.task.output"], span.attributes["gen_ai.output.messages"]) where span.attributes["gen_ai.operation.name"] == "invoke_agent" and span.attributes["gen_ai.output.messages"] != nil
+          - set(span.attributes["gen_ai.tool.call.arguments"], span.attributes["gen_ai.tool.arguments"]) where span.attributes["gen_ai.operation.name"] == "execute_tool" and span.attributes["gen_ai.tool.arguments"] != nil
+          - set(span.attributes["gen_ai.tool.call.result"], span.attributes["gen_ai.tool.output"]) where span.attributes["gen_ai.operation.name"] == "execute_tool" and span.attributes["gen_ai.tool.output"] != nil
+
+  # The resource attributes AgentCore Runtime sets in OTEL_RESOURCE_ATTRIBUTES. Without them,
+  # CloudWatch does not group the spans under the agent. Locally the variable is unset and the
+  # spans keep the service name from observability.toml.
+  resource_detection/agentcore:
+    detectors: [env]
+    override: true
+
+  transform/agentcore_origin:
+    error_mode: ignore
+    trace_statements:
+      - context: span
+        statements:
+          - set(span.attributes["aws.xray.origin"], "AWS::BedrockAgentCore::Runtime") where resource.attributes["cloud.resource_id"] != nil
+          - set(span.attributes["aws.resource.type"], "AWS::BedrockAgentCore::Runtime") where resource.attributes["cloud.resource_id"] != nil
+          - set(span.attributes["aws.resource.arn"], resource.attributes["cloud.resource_id"]) where resource.attributes["cloud.resource_id"] != nil
+
+  # AWS groups the spans of one session by session.id.
+  attributes/session_id:
+    actions:
+      - { key: session.id, from_attribute: gen_ai.conversation.id, action: upsert }
+
+service:
+  extensions: [sigv4auth]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [filter/drop_health, attributes/genai_token_types, transform/genai_total_tokens, transform/scope_name, transform/genai_eval_aliases, resource_detection/agentcore, transform/agentcore_origin, attributes/session_id]
+      exporters: [otlp_http]

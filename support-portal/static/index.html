@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guest Support Cases</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --panel: #ffffff; --text: #1d2330; --muted: #5d6677; --line: #e3e6ec;
+    --accent: #2457d6; --accent-soft: #e8eefc; --ok: #1e7a46; --ok-soft: #e4f4ea;
+    --warn: #9a5b00; --warn-soft: #fdf0d9; --bad: #b42318; --bad-soft: #fde7e5;
+    --info: #1f5fbf; --info-soft: #e5eefb; --idle: #4b5565; --idle-soft: #eceef2;
+    --radius: 10px; --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 1px 3px rgba(16, 24, 40, .08);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  header {
+    display: flex; align-items: baseline; gap: 12px; padding: 14px 24px;
+    background: var(--panel); border-bottom: 1px solid var(--line);
+  }
+  header h1 { margin: 0; font-size: 17px; font-weight: 650; }
+  header span { color: var(--muted); font-size: 13px; }
+  header label { margin-left: auto; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+  header label input { width: 180px; }
+  main {
+    display: grid; grid-template-columns: minmax(340px, 420px) 1fr; gap: 20px;
+    padding: 20px 24px; max-width: 1400px; margin: 0 auto;
+  }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+  .card > h2 {
+    margin: 0; padding: 12px 16px; font-size: 13px; font-weight: 650; text-transform: uppercase;
+    letter-spacing: .04em; color: var(--muted); border-bottom: 1px solid var(--line);
+  }
+  .card .body { padding: 14px 16px; }
+  .stack { display: flex; flex-direction: column; gap: 20px; }
+  .samples { display: grid; gap: 8px; margin-bottom: 12px; }
+  button {
+    font: inherit; cursor: pointer; border-radius: 8px; border: 1px solid var(--line);
+    background: var(--panel); color: var(--text); padding: 8px 12px; text-align: left;
+  }
+  button:hover { border-color: #c5cbd6; }
+  button:disabled { opacity: .55; cursor: default; }
+  button.sample small { display: block; color: var(--muted); font-size: 12px; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; text-align: center; font-weight: 600; }
+  button.approve { background: var(--ok); border-color: var(--ok); color: #fff; font-weight: 600; text-align: center; }
+  button.reject { color: var(--bad); border-color: #f0b8b2; font-weight: 600; text-align: center; }
+  textarea, input {
+    width: 100%; font: inherit; color: var(--text); padding: 8px 10px; border: 1px solid var(--line);
+    border-radius: 8px; background: #fff;
+  }
+  textarea { min-height: 70px; resize: vertical; }
+  .row { display: flex; gap: 8px; margin-top: 8px; }
+  .row input { flex: 1; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 600; padding: 8px 16px; border-bottom: 1px solid var(--line); }
+  td { padding: 10px 16px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr.case { cursor: pointer; }
+  tr.case:hover td { background: #fafbfc; }
+  tr.case.selected td { background: var(--accent-soft); }
+  td .id { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+  td .inquiry { color: var(--muted); font-size: 13px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .pill {
+    display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600;
+    white-space: nowrap; background: var(--idle-soft); color: var(--idle);
+  }
+  .pill.PENDING_APPROVAL { background: var(--warn-soft); color: var(--warn); }
+  .pill.INVESTIGATING, .pill.APPLYING { background: var(--info-soft); color: var(--info); }
+  .pill.APPLIED { background: var(--ok-soft); color: var(--ok); }
+  .pill.NEEDS_REVIEW, .pill.FAILED { background: var(--bad-soft); color: var(--bad); }
+  .empty { color: var(--muted); padding: 24px 16px; text-align: center; }
+  .detail-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+  .detail-head h2 { margin: 0; font-size: 16px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .detail-head .meta { color: var(--muted); font-size: 13px; margin-left: auto; }
+  section.block { padding: 14px 20px; border-bottom: 1px solid var(--line); }
+  section.block:last-child { border-bottom: 0; }
+  section.block h3 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  section.block p { margin: 0; }
+  blockquote { margin: 0; padding: 10px 14px; background: #f8f9fb; border-left: 3px solid var(--line); border-radius: 6px; }
+  ul.evidence { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+  ul.evidence li { display: flex; gap: 8px; align-items: baseline; }
+  .chip { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--idle-soft); color: var(--idle); white-space: nowrap; }
+  .proposal { border: 1px solid #f3d9a9; background: #fffaf0; border-radius: 8px; padding: 12px 14px; }
+  .proposal .tool { font-weight: 650; }
+  dl.args { display: grid; grid-template-columns: max-content 1fr; gap: 2px 14px; margin: 8px 0; }
+  dl.args dt { color: var(--muted); }
+  dl.args dd { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .reply { white-space: pre-wrap; background: #f8f9fb; border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+  .actions { display: flex; gap: 10px; padding: 14px 20px; background: #fafbfc; border-top: 1px solid var(--line); border-radius: 0 0 var(--radius) var(--radius); }
+  .actions button { min-width: 120px; }
+  .actions .hint { margin-left: auto; align-self: center; color: var(--muted); font-size: 13px; }
+  pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 12px; background: #f8f9fb; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .alert { color: var(--bad); }
+  .muted { color: var(--muted); }
+  #toast {
+    position: fixed; right: 20px; bottom: 20px; padding: 10px 14px; border-radius: 8px;
+    background: #1d2330; color: #fff; box-shadow: var(--shadow); opacity: 0; transition: opacity .2s; pointer-events: none;
+  }
+  #toast.show { opacity: .95; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Guest Support</h1>
+  <span>Inquiry cases &middot; investigated by the inquiry agent, approved by you &middot; synthetic data</span>
+  <label>Representative <input id="representative" maxlength="128" placeholder="Default from Config.toml"></label>
+</header>
+
+<main>
+  <div class="stack">
+    <div class="card">
+      <h2>New inquiry</h2>
+      <div class="body">
+        <div class="samples">
+          <button class="sample" data-sample="1">Changed dates, old confirmation<small>&ldquo;I changed my booking dates in the app, but my confirmation still shows the old dates.&rdquo;</small></button>
+          <button class="sample" data-sample="2">Missing loyalty points<small>&ldquo;I stayed last weekend, but my loyalty points never showed up.&rdquo;</small></button>
+          <button class="sample" data-sample="3">Unrecognized card charge<small>&ldquo;There's a charge on my card from the resort that I don't recognize.&rdquo;</small></button>
+        </div>
+        <textarea id="inquiry" placeholder="Or type a guest's message&hellip;"></textarea>
+        <div class="row">
+          <input id="customerRef" placeholder="Guest reference, e.g. G-10427">
+          <button class="primary" id="create">Create case</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Cases</h2>
+      <table>
+        <thead><tr><th>Case</th><th>Status</th></tr></thead>
+        <tbody id="cases"><tr><td colspan="2" class="empty">Loading&hellip;</td></tr></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Dead-letter queues</h2>
+      <div class="body" id="failures"><span class="muted">Loading&hellip;</span></div>
+    </div>
+  </div>
+
+  <div class="card" id="detail">
+    <div class="empty">Select a case to see the agent&rsquo;s findings.</div>
+  </div>
+</main>
+
+<div id="toast"></div>
+
+<script>
+  const STATUS_TEXT = {
+    QUEUED: "Queued", INVESTIGATING: "Investigating", PENDING_APPROVAL: "Awaiting approval",
+    NO_ACTION_PROPOSED: "No change proposed", APPLYING: "Applying", APPLIED: "Applied",
+    REJECTED: "Rejected", NEEDS_REVIEW: "Needs review", FAILED: "Failed"
+  };
+  let selected = null;
+
+  function el(tag, props = {}, ...children) {
+    const node = document.createElement(tag);
+    for (const [key, value] of Object.entries(props)) {
+      if (key === "class") node.className = value;
+      else if (key === "text") node.textContent = value;
+      else if (key.startsWith("on")) node.addEventListener(key.slice(2), value);
+      else node.setAttribute(key, value);
+    }
+    for (const child of children) if (child != null) node.append(child);
+    return node;
+  }
+
+  function pill(status) {
+    return el("span", { class: "pill " + (status || ""), text: STATUS_TEXT[status] || status || "Unknown" });
+  }
+
+  function ago(iso) {
+    if (!iso) return "";
+    const seconds = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
+    if (seconds < 60) return "just now";
+    if (seconds < 3600) return Math.floor(seconds / 60) + " min ago";
+    if (seconds < 86400) return Math.floor(seconds / 3600) + " h ago";
+    return new Date(iso).toLocaleDateString();
+  }
+
+  function toast(message) {
+    const node = document.getElementById("toast");
+    node.textContent = message;
+    node.classList.add("show");
+    setTimeout(() => node.classList.remove("show"), 2600);
+  }
+
+  async function api(path, options = {}) {
+    const response = await fetch(path, { headers: { "Content-Type": "application/json" }, ...options });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.message || response.statusText);
+    return body;
+  }
+
+  // The portal has no sign-in. The name is sent with each case and decision, and the listener
+  // passes it to the agent as the runtime user ID. Empty means the default from Config.toml.
+  const representativeInput = document.getElementById("representative");
+  representativeInput.value = localStorage.getItem("representative") || "";
+  representativeInput.addEventListener("change", () =>
+    localStorage.setItem("representative", representativeInput.value.trim()));
+
+  function withRepresentative(payload) {
+    const representative = representativeInput.value.trim();
+    return representative ? { ...payload, representative } : payload;
+  }
+
+  // Buttons are disabled while a request is in flight, so a double click sends it once.
+  let busy = false;
+  async function once(action) {
+    if (busy) return;
+    busy = true;
+    const buttons = document.querySelectorAll("button");
+    buttons.forEach(button => button.disabled = true);
+    try { await action(); } finally {
+      busy = false;
+      document.querySelectorAll("button").forEach(button => button.disabled = false);
+    }
+  }
+
+  async function createCase(payload) {
+    await once(async () => {
+      try {
+        const created = await api("/cases", { method: "POST", body: JSON.stringify(withRepresentative(payload)) });
+        toast("Created " + created.caseId);
+        selected = created.caseId;
+        await refresh();
+      } catch (error) { toast(error.message); }
+    });
+  }
+
+  async function decide(caseId, decision) {
+    await once(async () => {
+      try {
+        const sent = await api(`/cases/${encodeURIComponent(caseId)}/decision`, {
+          method: "POST", body: JSON.stringify(withRepresentative({ decision }))
+        });
+        toast((decision === "approve" ? "Approved" : "Rejected") + " proposal v" + sent.proposalVersion);
+        await refresh();
+      } catch (error) { toast(error.message); }
+    });
+  }
+
+  async function loadCases() {
+    const body = document.getElementById("cases");
+    try {
+      const cases = await api("/cases");
+      body.replaceChildren();
+      if (cases.length === 0) {
+        body.append(el("tr", {}, el("td", { colspan: "2", class: "empty", text: "No cases yet. Create one above." })));
+        return;
+      }
+      for (const item of cases) {
+        const row = el("tr", { class: "case" + (item.caseId === selected ? " selected" : ""),
+                               onclick: () => { selected = item.caseId; refresh(); } },
+          el("td", {},
+            el("div", { class: "id", text: item.caseId }),
+            el("div", { class: "inquiry", text: item.inquiry || "" })),
+          el("td", {}, pill(item.status), el("div", { class: "muted", text: ago(item.updatedAt) })));
+        body.append(row);
+      }
+    } catch (error) {
+      body.replaceChildren(el("tr", {}, el("td", { colspan: "2", class: "empty alert", text: error.message })));
+    }
+  }
+
+  function block(title, ...content) {
+    return el("section", { class: "block" }, el("h3", { text: title }), ...content);
+  }
+
+  function renderProposal(action) {
+    if (!action) return el("p", { class: "muted", text: "The agent did not propose a change." });
+    const [target, tool] = (action.tool || "").split("___");
+    const args = el("dl", { class: "args" });
+    for (const [key, value] of Object.entries(action.arguments || {})) {
+      args.append(el("dt", { text: key }), el("dd", { text: typeof value === "object" ? JSON.stringify(value) : String(value) }));
+    }
+    return el("div", { class: "proposal" },
+      el("div", { class: "tool", text: tool ? `${target} · ${tool}` : action.tool }),
+      args,
+      el("p", { text: action.rationale || "" }));
+  }
+
+  async function loadDetail() {
+    const panel = document.getElementById("detail");
+    if (!selected) return;
+    let item;
+    try {
+      item = await api(`/cases/${encodeURIComponent(selected)}`);
+    } catch (error) {
+      panel.replaceChildren(el("div", { class: "empty alert", text: error.message }));
+      return;
+    }
+    const job = item.job || {};
+    const findings = item.findings || {};
+    const parts = [
+      el("div", { class: "detail-head" },
+        el("h2", { text: item.caseId }), pill(item.status),
+        el("span", { class: "meta", text: [job.customerRef, job.channel, job.requestedBy && "by " + job.requestedBy,
+          ago(item.updatedAt)].filter(Boolean).join(" · ") })),
+      block("Guest message", el("blockquote", { text: job.inquiry || "" }))
+    ];
+
+    if (!item.findings) {
+      const waiting = ["QUEUED", "INVESTIGATING"].includes(item.status);
+      parts.push(block("Findings", el("p", { class: "muted",
+        text: waiting ? "The agent is investigating. This page refreshes on its own." : "No findings saved." })));
+    } else {
+      parts.push(block("Summary", el("p", { text: findings.summary || "" })));
+      parts.push(block("Root cause", el("p", { text: findings.rootCause || "" })));
+      const evidence = el("ul", { class: "evidence" });
+      for (const entry of findings.evidence || []) {
+        evidence.append(el("li", {}, el("span", { class: "chip", text: entry.source }), el("span", { text: entry.detail })));
+      }
+      parts.push(block(`Evidence · confidence ${findings.confidence || "-"}`, evidence));
+      if ((findings.knowledgeSources || []).length) {
+        parts.push(block("Knowledge used", el("p", { class: "muted", text: findings.knowledgeSources.join(", ") })));
+      }
+      parts.push(block(`Proposed change · version ${item.proposalVersion ?? "-"}`, renderProposal(item.proposedAction)));
+      parts.push(block("Draft reply", el("div", { class: "reply", text: item.draftReply || findings.draftReply || "" })));
+    }
+    if (item.decidedBy) {
+      parts.push(block("Decided by", el("p", { text: item.decidedBy })));
+    }
+    if (item.applyResult) {
+      parts.push(block("Write tool response", el("pre", { text: JSON.stringify(item.applyResult, null, 2) })));
+    }
+    if (item.failureReason) {
+      parts.push(block("Needs attention", el("p", { class: "alert", text: item.failureReason })));
+    }
+    if (item.status === "PENDING_APPROVAL") {
+      parts.push(el("div", { class: "actions" },
+        el("button", { class: "approve", text: "Approve", onclick: () => decide(item.caseId, "approve") }),
+        el("button", { class: "reject", text: "Reject", onclick: () => decide(item.caseId, "reject") }),
+        el("span", { class: "hint", text: "Only the stored proposal is applied, and only once." })));
+    }
+    panel.replaceChildren(...parts);
+  }
+
+  async function loadFailures() {
+    const panel = document.getElementById("failures");
+    try {
+      const { jobs, decisions } = await api("/failures");
+      const all = [...jobs.map(m => ["jobs", m]), ...decisions.map(m => ["decisions", m])];
+      if (all.length === 0) { panel.replaceChildren(el("span", { class: "muted", text: "Empty. No failed messages." })); return; }
+      const list = el("ul", { class: "evidence" });
+      for (const [queue, message] of all) {
+        list.append(el("li", {}, el("span", { class: "chip", text: queue }),
+          el("span", { text: message.caseId || JSON.stringify(message.body).slice(0, 80) })));
+      }
+      panel.replaceChildren(list);
+    } catch (error) {
+      panel.replaceChildren(el("span", { class: "alert", text: error.message }));
+    }
+  }
+
+  async function refresh() {
+    await Promise.all([loadCases(), loadDetail()]);
+  }
+
+  document.querySelectorAll("button.sample").forEach(button =>
+    button.addEventListener("click", () => createCase({ sample: Number(button.dataset.sample) })));
+  document.getElementById("create").addEventListener("click", () => {
+    const inquiry = document.getElementById("inquiry").value.trim();
+    const customerRef = document.getElementById("customerRef").value.trim();
+    if (!inquiry) { toast("Type the guest's message first."); return; }
+    createCase(customerRef ? { inquiry, customerRef } : { inquiry });
+    document.getElementById("inquiry").value = "";
+  });
+
+  refresh();
+  loadFailures();
+  setInterval(refresh, 5000);
+  setInterval(loadFailures, 30000);
+</script>
+</body>
+</html>

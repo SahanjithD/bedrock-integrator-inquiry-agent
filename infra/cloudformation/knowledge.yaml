@@ -1,0 +1,116 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Customer inquiry agent sample - guardrail and knowledge base service role. Deployed by
+  scripts/02-knowledge-base.sh, which then creates the managed knowledge base and its data
+  sources with the AWS CLI.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: inquiry-agent
+  FoundationStackName:
+    Type: String
+    Default: inquiry-agent-foundation
+  PermissionsBoundaryArn:
+    Type: String
+    Default: ""
+    Description: Optional permissions boundary for every IAM role in this stack. Leave empty for none.
+
+Conditions:
+  HasPermissionsBoundary: !Not [!Equals [!Ref PermissionsBoundaryArn, ""]]
+
+Resources:
+  # Personal data is masked in model output (findings and draft replies). Input is checked
+  # but not changed, so tool results reach the model intact.
+  Guardrail:
+    Type: AWS::Bedrock::Guardrail
+    Properties:
+      Name: !Sub ${ProjectName}-personal-data
+      Description: Masks personal data in the inquiry agent's output.
+      BlockedInputMessaging: This request cannot be processed.
+      BlockedOutputsMessaging: The response was withheld by the guardrail.
+      SensitiveInformationPolicyConfig:
+        PiiEntitiesConfig:
+          - Type: NAME
+            Action: ANONYMIZE
+            InputAction: NONE
+            OutputAction: ANONYMIZE
+          - Type: EMAIL
+            Action: ANONYMIZE
+            InputAction: NONE
+            OutputAction: ANONYMIZE
+          - Type: PHONE
+            Action: ANONYMIZE
+            InputAction: NONE
+            OutputAction: ANONYMIZE
+          - Type: ADDRESS
+            Action: ANONYMIZE
+            InputAction: NONE
+            OutputAction: ANONYMIZE
+          - Type: CREDIT_DEBIT_CARD_NUMBER
+            Action: ANONYMIZE
+            InputAction: ANONYMIZE
+            OutputAction: ANONYMIZE
+          - Type: CREDIT_DEBIT_CARD_CVV
+            Action: BLOCK
+            InputAction: BLOCK
+            OutputAction: BLOCK
+
+  GuardrailVersion:
+    Type: AWS::Bedrock::GuardrailVersion
+    Properties:
+      GuardrailIdentifier: !GetAtt Guardrail.GuardrailId
+      Description: Initial version
+
+  KnowledgeBaseRole:
+    Type: AWS::IAM::Role
+    Properties:
+      PermissionsBoundary: !If [HasPermissionsBoundary, !Ref PermissionsBoundaryArn, !Ref AWS::NoValue]
+      RoleName: !Sub ${ProjectName}-knowledge-base
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: bedrock.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+              ArnLike:
+                aws:SourceArn: !Sub arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/*
+      Policies:
+        # TODO(verify): any further permissions a MANAGED knowledge base needs beyond reading
+        # its S3 source (Bedrock owns the vector store and the managed embedding model).
+        - PolicyName: read-knowledge-source
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # The S3 connector lists the bucket itself; the data source's inclusion prefix
+              # (knowledge/) limits what it ingests. Objects can be read under knowledge/ only.
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource:
+                  Fn::ImportValue: !Sub ${FoundationStackName}-KnowledgeBucketArn
+                Condition:
+                  StringEquals:
+                    aws:ResourceAccount: !Ref AWS::AccountId
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub
+                  - ${BucketArn}/knowledge/*
+                  - BucketArn:
+                      Fn::ImportValue: !Sub ${FoundationStackName}-KnowledgeBucketArn
+                Condition:
+                  StringEquals:
+                    aws:ResourceAccount: !Ref AWS::AccountId
+
+Outputs:
+  GuardrailId:
+    Value: !GetAtt Guardrail.GuardrailId
+  GuardrailArn:
+    Value: !GetAtt Guardrail.GuardrailArn
+  GuardrailVersion:
+    Value: !GetAtt GuardrailVersion.Version
+  KnowledgeBaseRoleArn:
+    Value: !GetAtt KnowledgeBaseRole.Arn

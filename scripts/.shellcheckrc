@@ -1,0 +1,5 @@
+# The deploy steps read values written by earlier steps from .deploy/outputs.env at run
+# time, so shellcheck cannot see where they are assigned.
+disable=SC2154
+source-path=SCRIPTDIR
+external-sources=true

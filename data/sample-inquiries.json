@@ -1,0 +1,29 @@
+[
+  {
+    "id": 1,
+    "title": "Changed booking dates, old confirmation",
+    "customerRef": "G-10427",
+    "channel": "email",
+    "context": {"reservationId": "R-48213"},
+    "inquiry": "I changed my booking dates in the app, but my confirmation still shows the old dates.",
+    "expectedFix": "reservation___reissueConfirmation for R-48213"
+  },
+  {
+    "id": 2,
+    "title": "Loyalty points missing after a stay",
+    "customerRef": "G-15562",
+    "channel": "chat",
+    "context": {"memberId": "M-77310"},
+    "inquiry": "I stayed last weekend, but my loyalty points never showed up.",
+    "expectedFix": "loyalty___creditPoints for M-77310, stay S-90551, 3465 points"
+  },
+  {
+    "id": 3,
+    "title": "Unrecognized card charge",
+    "customerRef": "G-20934",
+    "channel": "email",
+    "context": {},
+    "inquiry": "There's a charge on my card from the resort that I don't recognize.",
+    "expectedFix": "payment___refundCharge for CH-7003, 250.00"
+  }
+]

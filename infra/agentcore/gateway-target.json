@@ -1,0 +1,18 @@
+{
+  "gatewayIdentifier": "",
+  "name": "",
+  "description": "",
+  "targetConfiguration": {
+    "mcp": {
+      "mcpServer": {"endpoint": ""}
+    }
+  },
+  "credentialProviderConfigurations": [
+    {
+      "credentialProviderType": "OAUTH",
+      "credentialProvider": {
+        "oauthCredentialProvider": {"providerArn": "", "scopes": ["inquiry-gateway/invoke"]}
+      }
+    }
+  ]
+}

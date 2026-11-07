@@ -1,0 +1,295 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Customer inquiry agent sample - the inquiry listener on Amazon ECS (Fargate, ARM64): ECR
+  repository, a small VPC with public subnets, cluster, task definition, service (one task),
+  roles and log group. The listener reads the SQS queues and calls the inquiry agent on
+  AgentCore Runtime. Deployed by scripts/05-listener.sh.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: inquiry-agent
+  FoundationStackName:
+    Type: String
+    Default: inquiry-agent-foundation
+  ImageTag:
+    Type: String
+    Default: latest
+    Description: Tag of the listener image in this stack's ECR repository.
+  DesiredCount:
+    Type: Number
+    Default: 1
+    MinValue: 0
+    MaxValue: 1
+    Description: >-
+      Number of listener tasks (0 or 1). One task runs up to five investigations and two
+      decisions at once.
+  AgentRuntimeArn:
+    Type: String
+    Description: ARN of the inquiry agent runtime, from scripts/04-agent.sh.
+  AgentRuntimeQualifier:
+    Type: String
+    Default: DEFAULT
+  TaskCpu:
+    Type: Number
+    Default: 512
+  TaskMemory:
+    Type: Number
+    Default: 1024
+  PermissionsBoundaryArn:
+    Type: String
+    Default: ""
+    Description: Optional permissions boundary for every IAM role in this stack. Leave empty for none.
+
+Conditions:
+  HasPermissionsBoundary: !Not [!Equals [!Ref PermissionsBoundaryArn, ""]]
+
+Resources:
+  # ---------------------------------------------------------------------------
+  # Networking: kept simple for a sample. Public subnets with public IPs, and a
+  # security group that allows outbound traffic only (the listener has no inbound ports).
+  # ---------------------------------------------------------------------------
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.20.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-listener
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.20.0.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-listener-public-a
+
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.20.1.0/24
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-listener-public-b
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+
+  DefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetARouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetA
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnetBRouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetB
+      RouteTableId: !Ref PublicRouteTable
+
+  ListenerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Inquiry listener tasks - outbound only
+      VpcId: !Ref Vpc
+      SecurityGroupEgress:
+        - Description: HTTPS to SQS, DynamoDB and AgentCore Runtime
+          IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+
+  # ---------------------------------------------------------------------------
+  # Image, cluster and logs
+  # ---------------------------------------------------------------------------
+  ListenerRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub ${ProjectName}/inquiry-listener
+      EmptyOnDelete: true
+      ImageScanningConfiguration:
+        ScanOnPush: true
+
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub ${ProjectName}
+
+  ListenerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /ecs/${ProjectName}/inquiry-listener
+      RetentionInDays: 30
+
+  # ---------------------------------------------------------------------------
+  # Roles
+  # ---------------------------------------------------------------------------
+  # Used by ECS to pull the image and write logs.
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      PermissionsBoundary: !If [HasPermissionsBoundary, !Ref PermissionsBoundaryArn, !Ref AWS::NoValue]
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  # Used by the listener itself: the two queues, the case table, and the agent runtime only.
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      PermissionsBoundary: !If [HasPermissionsBoundary, !Ref PermissionsBoundaryArn, !Ref AWS::NoValue]
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              ArnLike:
+                aws:SourceArn: !Sub arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:*
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+      Policies:
+        - PolicyName: inquiry-listener
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ConsumeQueues
+                Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:ChangeMessageVisibility
+                  - sqs:GetQueueAttributes
+                Resource:
+                  - Fn::ImportValue: !Sub ${FoundationStackName}-JobQueueArn
+                  - Fn::ImportValue: !Sub ${FoundationStackName}-DecisionQueueArn
+              - Sid: ReadAndUpdateCases
+                Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:UpdateItem]
+                Resource:
+                  Fn::ImportValue: !Sub ${FoundationStackName}-CaseTableArn
+              # Every call names the representative in the runtime user-ID header, which needs
+              # InvokeAgentRuntimeForUser as well. AgentCore checks both the runtime and the
+              # endpoint the call goes to (<runtime ARN>/runtime-endpoint/DEFAULT).
+              - Sid: InvokeAgent
+                Effect: Allow
+                Action:
+                  - bedrock-agentcore:InvokeAgentRuntime
+                  - bedrock-agentcore:InvokeAgentRuntimeForUser
+                Resource:
+                  - !Ref AgentRuntimeArn
+                  - !Sub ${AgentRuntimeArn}/runtime-endpoint/*
+
+  # ---------------------------------------------------------------------------
+  # Task definition and service
+  # ---------------------------------------------------------------------------
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub ${ProjectName}-inquiry-listener
+      Cpu: !Ref TaskCpu
+      Memory: !Ref TaskMemory
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      RuntimePlatform:
+        CpuArchitecture: ARM64
+        OperatingSystemFamily: LINUX
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: inquiry-listener
+          Image: !Sub ${ListenerRepository.RepositoryUri}:${ImageTag}
+          Essential: true
+          # Time to finish after SIGTERM. Agent calls still open are abandoned; their messages
+          # become visible again after the visibility timeout and are retried.
+          StopTimeout: 120
+          Environment:
+            - Name: BAL_CONFIG_DATA
+              Value: !Sub
+                - |
+                  awsRegion = "${AWS::Region}"
+                  jobQueueUrl = "${JobQueueUrl}"
+                  decisionQueueUrl = "${DecisionQueueUrl}"
+                  caseTable = "${CaseTableName}"
+                  agentRuntimeArn = "${AgentRuntimeArn}"
+                  agentRuntimeQualifier = "${AgentRuntimeQualifier}"
+                - JobQueueUrl:
+                    Fn::ImportValue: !Sub ${FoundationStackName}-JobQueueUrl
+                  DecisionQueueUrl:
+                    Fn::ImportValue: !Sub ${FoundationStackName}-DecisionQueueUrl
+                  CaseTableName:
+                    Fn::ImportValue: !Sub ${FoundationStackName}-CaseTableName
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref ListenerLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: listener
+
+  Service:
+    Type: AWS::ECS::Service
+    DependsOn: DefaultRoute
+    Properties:
+      ServiceName: inquiry-listener
+      Cluster: !Ref Cluster
+      TaskDefinition: !Ref TaskDefinition
+      DesiredCount: !Ref DesiredCount
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets: [!Ref PublicSubnetA, !Ref PublicSubnetB]
+          SecurityGroups: [!Ref ListenerSecurityGroup]
+      # During a deployment the old and new task overlap briefly. That is safe: every status
+      # change is a conditional update, so two listeners never handle the same case twice.
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 100
+        MaximumPercent: 200
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+      PropagateTags: SERVICE
+
+Outputs:
+  ListenerRepositoryUri:
+    Value: !GetAtt ListenerRepository.RepositoryUri
+  ClusterName:
+    Value: !Ref Cluster
+  ServiceName:
+    Value: !GetAtt Service.Name
+  ListenerLogGroupName:
+    Value: !Ref ListenerLogGroup

@@ -1,0 +1,249 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Customer inquiry agent sample - foundation: SQS queues with DLQs, the DynamoDB case
+  table, the knowledge bucket, and Cognito machine clients for the gateway. Deployed by
+  scripts/01-foundation.sh. Synthetic data only.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: inquiry-agent
+    AllowedPattern: "^[a-z][a-z0-9-]{2,30}$"
+    Description: Prefix for resource names. Lowercase letters, digits and hyphens.
+  CognitoDomainPrefix:
+    Type: String
+    AllowedPattern: "^[a-z0-9-]{3,63}$"
+    Description: Globally unique prefix for the Cognito hosted domain used for client-credentials tokens.
+
+Resources:
+  # ---------------------------------------------------------------------------
+  # Queues. The inquiry listener on ECS polls both. A received message stays hidden
+  # for 20 minutes, longer than AgentCore's 15-minute limit for a synchronous agent
+  # call. A message that fails three times (maxReceiveCount) moves to its DLQ.
+  # ---------------------------------------------------------------------------
+  JobDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${ProjectName}-jobs-dlq
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+
+  JobQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${ProjectName}-jobs
+      # Above the 15-minute synchronous call limit (the listener uses the same value).
+      VisibilityTimeout: 1200
+      MessageRetentionPeriod: 345600
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt JobDeadLetterQueue.Arn
+        maxReceiveCount: 3
+
+  DecisionDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${ProjectName}-decisions-dlq
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+
+  DecisionQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${ProjectName}-decisions
+      VisibilityTimeout: 1200
+      MessageRetentionPeriod: 345600
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DecisionDeadLetterQueue.Arn
+        maxReceiveCount: 3
+
+  # ---------------------------------------------------------------------------
+  # Case table. One item per case; stands in for a ticket in a support system.
+  # ---------------------------------------------------------------------------
+  CaseTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${ProjectName}-cases
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: caseId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: caseId
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  # ---------------------------------------------------------------------------
+  # Knowledge bucket: runbooks and policies under knowledge/ (S3 data source).
+  # ---------------------------------------------------------------------------
+  KnowledgeBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${ProjectName}-knowledge-${AWS::AccountId}-${AWS::Region}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+
+  KnowledgeBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref KnowledgeBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt KnowledgeBucket.Arn
+              - !Sub ${KnowledgeBucket.Arn}/*
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+
+  # ---------------------------------------------------------------------------
+  # Cognito: client-credentials tokens for the gateway (inbound) and for the
+  # gateway's calls to the MCP runtimes (outbound). The client secrets are handed to AgentCore
+  # Identity credential providers by scripts/03-mcp-servers.sh and scripts/04-agent.sh.
+  # ---------------------------------------------------------------------------
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub ${ProjectName}-machine-clients
+      # Set explicitly as well as through the stack tags: the deployer policy matches on it.
+      UserPoolTags:
+        Project: !Ref ProjectName
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: true
+
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Ref CognitoDomainPrefix
+      UserPoolId: !Ref UserPool
+
+  ResourceServer:
+    Type: AWS::Cognito::UserPoolResourceServer
+    Properties:
+      UserPoolId: !Ref UserPool
+      Identifier: inquiry-gateway
+      Name: Inquiry gateway
+      Scopes:
+        - ScopeName: read
+          ScopeDescription: Read-only tools, used by the investigate action
+        - ScopeName: write
+          ScopeDescription: Write tools, used by the apply action after approval
+        - ScopeName: invoke
+          ScopeDescription: Gateway calls to the MCP server runtimes
+
+  InvestigatorClient:
+    Type: AWS::Cognito::UserPoolClient
+    DependsOn: ResourceServer
+    Properties:
+      UserPoolId: !Ref UserPool
+      ClientName: !Sub ${ProjectName}-investigator
+      GenerateSecret: true
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows: [client_credentials]
+      AllowedOAuthScopes: [inquiry-gateway/read]
+      AccessTokenValidity: 60
+      TokenValidityUnits:
+        AccessToken: minutes
+
+  ApplierClient:
+    Type: AWS::Cognito::UserPoolClient
+    DependsOn: ResourceServer
+    Properties:
+      UserPoolId: !Ref UserPool
+      ClientName: !Sub ${ProjectName}-applier
+      GenerateSecret: true
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows: [client_credentials]
+      AllowedOAuthScopes: [inquiry-gateway/write]
+      AccessTokenValidity: 15
+      TokenValidityUnits:
+        AccessToken: minutes
+
+  GatewayOutboundClient:
+    Type: AWS::Cognito::UserPoolClient
+    DependsOn: ResourceServer
+    Properties:
+      UserPoolId: !Ref UserPool
+      ClientName: !Sub ${ProjectName}-gateway-outbound
+      GenerateSecret: true
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows: [client_credentials]
+      AllowedOAuthScopes: [inquiry-gateway/invoke]
+      AccessTokenValidity: 60
+      TokenValidityUnits:
+        AccessToken: minutes
+
+Outputs:
+  JobQueueUrl:
+    Value: !Ref JobQueue
+    Export:
+      Name: !Sub ${AWS::StackName}-JobQueueUrl
+  JobQueueArn:
+    Value: !GetAtt JobQueue.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-JobQueueArn
+  JobDeadLetterQueueUrl:
+    Value: !Ref JobDeadLetterQueue
+  DecisionQueueUrl:
+    Value: !Ref DecisionQueue
+    Export:
+      Name: !Sub ${AWS::StackName}-DecisionQueueUrl
+  DecisionQueueArn:
+    Value: !GetAtt DecisionQueue.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-DecisionQueueArn
+  DecisionDeadLetterQueueUrl:
+    Value: !Ref DecisionDeadLetterQueue
+  CaseTableName:
+    Value: !Ref CaseTable
+    Export:
+      Name: !Sub ${AWS::StackName}-CaseTableName
+  CaseTableArn:
+    Value: !GetAtt CaseTable.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-CaseTableArn
+  KnowledgeBucketName:
+    Value: !Ref KnowledgeBucket
+    Export:
+      Name: !Sub ${AWS::StackName}-KnowledgeBucketName
+  KnowledgeBucketArn:
+    Value: !GetAtt KnowledgeBucket.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-KnowledgeBucketArn
+  UserPoolId:
+    Value: !Ref UserPool
+  CognitoDiscoveryUrl:
+    Value: !Sub https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}/.well-known/openid-configuration
+  CognitoTokenUrl:
+    Value: !Sub https://${CognitoDomainPrefix}.auth.${AWS::Region}.amazoncognito.com/oauth2/token
+    Export:
+      Name: !Sub ${AWS::StackName}-CognitoTokenUrl
+  InvestigatorClientId:
+    Value: !Ref InvestigatorClient
+    Export:
+      Name: !Sub ${AWS::StackName}-InvestigatorClientId
+  ApplierClientId:
+    Value: !Ref ApplierClient
+    Export:
+      Name: !Sub ${AWS::StackName}-ApplierClientId
+  GatewayOutboundClientId:
+    Value: !Ref GatewayOutboundClient
