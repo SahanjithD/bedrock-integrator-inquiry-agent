@@ -180,6 +180,11 @@ appears in the list as **Queued**, then **Investigating**. When the agent finish
 **Awaiting approval**. Select it to see the summary, root cause, evidence, proposed change and
 draft reply.
 
+Enter your name in **Representative** at the top of the page. The portal sends it with each case
+(`requestedBy`) and decision (`decidedBy`), and the listener passes it to the agent as the
+runtime user ID. Left empty, the portal uses `representative` from `Config.toml`, which
+`portal-config.sh` sets to your login name.
+
 To create all three samples at once and wait for their investigations, run the demo in a
 second terminal while the portal is running:
 
@@ -187,10 +192,10 @@ second terminal while the portal is running:
 ./scripts/06-demo.sh
 ```
 
-The same steps with `curl`:
+The same steps with `curl`. `representative` is optional:
 
 ```bash
-curl -s -X POST localhost:9090/cases -H 'content-type: application/json' -d '{"sample": 1}'
+curl -s -X POST localhost:9090/cases -H 'content-type: application/json' -d '{"sample": 1, "representative": "rep-ana"}'
 ```
 
 ```bash
@@ -225,10 +230,10 @@ Review the findings and draft reply, then choose **Approve** (or **Reject**) on 
 `curl`:
 
 ```bash
-curl -s -X POST localhost:9090/cases/<caseId>/decision -H 'content-type: application/json' -d '{"decision": "approve"}'
+curl -s -X POST localhost:9090/cases/<caseId>/decision -H 'content-type: application/json' -d '{"decision": "approve", "representative": "rep-ana"}'
 ```
 
-The portal sends `{caseId, decision, proposalVersion}` to the decisions queue. Only a case that
+The portal sends `{caseId, decision, proposalVersion, decidedBy}` to the decisions queue. Only a case that
 is awaiting approval accepts a decision.
 
 Check the result in two places on the case, on the page or with
@@ -307,8 +312,9 @@ Check its output for anything it reports as skipped.
   the agent (tool allow lists) and by separate Cognito clients, not by gateway policy.
 - **Guardrail scope:** personal data is masked in model output only; input is checked but not
   changed. Card security codes are blocked.
-- **No approver identity:** the portal has no sign-in and does not record who approved a change.
-  A real support system would.
+- **Approver identity is not authenticated:** the case records who decided (`decidedBy`), but
+  the portal has no sign-in and takes the name from the page or `Config.toml`. A real support
+  system would take it from the signed-in user and enforce who may approve which change.
 - **A failed or interrupted apply stops at `NEEDS_REVIEW`.** A person must check whether the
   change was made.
 - **Public subnet** for the listener task, public network mode for the runtimes, and AWS owned
