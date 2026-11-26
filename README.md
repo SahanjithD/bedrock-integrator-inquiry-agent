@@ -1,6 +1,7 @@
 # Customer inquiry agent with Amazon Bedrock and WSO2 Integrator
 
-Sample code for the AWS blog post "[article title]".
+Sample code for the AWS blog post "Build grounded customer support agents with Amazon Bedrock
+and WSO2 Integrator".
 
 An inquiry agent built with WSO2 Integrator picks up investigation jobs from
 Amazon SQS, reasons with Amazon Bedrock models behind a guardrail, and
@@ -8,7 +9,7 @@ retrieves runbooks and past cases from an Amazon Bedrock Managed Knowledge Base.
 It gathers evidence through Amazon Bedrock AgentCore Gateway, and every change
 it proposes waits for a person's approval.
 
-> Work in progress. Uses synthetic data only.
+> Uses synthetic data only.
 
 ## Overview
 
@@ -147,9 +148,9 @@ built here. If you add one, list its read-only tools in `inquiry-agent/modules/c
    | | `portal-config.sh` | `support-portal/Config.toml`, from the deploy outputs |
    | 6 | `06-demo.sh` | Not part of `deploy.sh`: creates the three sample cases through the running portal and waits for their investigations |
 
-Some AgentCore and managed knowledge base requests are marked `TODO(verify)` because those
-APIs are new. If a step fails, check the request template it uses in `infra/` against the
-current AWS CLI reference. See [Known limits](#known-limits).
+The AgentCore and managed knowledge base requests use recent AWS CLI commands. If a step fails
+with an unknown command or parameter, update the AWS CLI, then compare the request template the
+step uses in `infra/` with the current AWS CLI reference.
 
 To follow the listener while it works:
 
@@ -274,23 +275,9 @@ Check its output for anything it reports as skipped.
 
 ## Known limits
 
-- **Not compiled in this repository's history.** The Ballerina code was written against the
-  current source of these modules, but has not been built with `bal build` here. Run
-  `bal build` and `bal test` in each package before you deploy.
-  - `ballerina/ai`, `ballerina/mcp`
-  - `ballerinax/ai.aws.bedrock`, `ballerinax/aws`, `ballerinax/aws.sqs`, `ballerinax/aws.dynamodb`
-- **Items marked `TODO(verify)`:** search the repository for `TODO(verify)`. They cover:
-  - the AgentCore CLI request shapes (runtimes, gateway, targets, OAuth credential providers),
-  - the `WorkloadAccessToken` header AgentCore Runtime passes to the agent, and the IAM actions
-    for the runtime user ID (`InvokeAgentRuntimeForUser`) and for `GetResourceOauth2Token`,
-  - the gateway tool-name prefix (`<target>___<tool>`),
-  - IAM details for managed knowledge bases and the gateway,
-  - how the DynamoDB connector reports a failed condition,
-  - attaching one SQS service to several `sqs:Listener` objects, which the listener uses to
-    bound concurrency,
-  - the Ballerina and Java image tags,
-  - whether the Ballerina MCP stateless mode accepts the `Mcp-Session-Id` header AgentCore
-    Runtime adds.
+The sample was deployed and run end to end in us-east-1 with Ballerina 2201.14.0 and AWS CLI
+2.39: deployment, investigations, approvals, a rejection and clean-up. These limits remain:
+
 - **15-minute calls.** Each agent call is synchronous and must finish within 15 minutes. The
   agent stops at 10 minutes and the job is retried, up to three times. Longer work would need a
   streaming response (up to 60 minutes) or an asynchronous pattern.

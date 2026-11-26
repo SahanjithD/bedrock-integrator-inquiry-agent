@@ -75,14 +75,16 @@ API reference for your AWS CLI version:
   variable values may not contain line breaks, so each agent setting is its own variable.
 - `cloudformation/listener-ecs.yaml`: `InvokeAgentRuntime` is checked against both the runtime
   ARN and its endpoint ARN (`<runtime ARN>/runtime-endpoint/DEFAULT`), so the task role allows both.
-- `cloudformation/agent-runtime.yaml`: **TODO(verify)** the actions and resources AgentCore
-  Identity checks for `GetResourceOauth2Token`, and that AgentCore Runtime passes the
-  `WorkloadAccessToken` header when the caller sends a runtime user ID.
-- `agentcore/oauth-provider.json`: **TODO(verify)** the shape of
-  `create-oauth2-credential-provider` for a custom OAuth 2.0 provider (Cognito).
-- `agentcore/gateway.json`, `gateway-target.json`: **TODO(verify)** the MCP server target
-  type and OAuth outbound credentials for a runtime-hosted MCP server, and the endpoint URL
-  format the scripts build for each runtime.
-- **TODO(verify)**: whether the gateway can restrict tools by OAuth scope (for example with a
-  gateway interceptor or AgentCore Policy). Today the read and write split is enforced by the
-  agent (`permittedTools`, write-tool allow list) and by separate Cognito clients.
+- `cloudformation/agent-runtime.yaml`: AgentCore Runtime passes the agent a
+  `WorkloadAccessToken` header because the listener sends a runtime user ID. AgentCore Identity
+  checks the agent's own role when the agent exchanges that token, so the role has
+  `GetResourceOauth2Token` on the workload identity directory and the token vault, and
+  `secretsmanager:GetSecretValue` on its two credential providers' secrets.
+- `agentcore/oauth-provider.json` follows `create-oauth2-credential-provider` for a custom
+  OAuth 2.0 provider, configured from the Cognito user pool's discovery URL.
+- `agentcore/gateway.json`, `gateway-target.json`: each MCP server is an MCP server target
+  with OAuth outbound credentials. Its endpoint is the runtime's invocation URL,
+  `https://bedrock-agentcore.<region>.amazonaws.com/runtimes/<URL-encoded runtime ARN>/invocations?qualifier=DEFAULT`.
+- The gateway does not restrict tools by OAuth scope in this sample. The read and write split
+  is enforced by the agent (`permittedTools`, write-tool allow list) and by separate Cognito
+  clients.
