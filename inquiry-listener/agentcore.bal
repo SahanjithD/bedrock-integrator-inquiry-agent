@@ -40,8 +40,6 @@ isolated function invokeAgent(map<json> payload, string runtimeSessionId, string
     // encoding pass turns the path into the double-encoded canonical URI (`%253A`, `%252F`) that
     // botocore computes for this operation. Method, URI template, session-ID and user-ID headers, `qualifier`
     // query parameter and signing name match the botocore service model.
-    // TODO(verify): confirm against a live runtime that `http:Client` sends the path unchanged;
-    // if AgentCore rejects the signature, compare with the AWS CLI's canonical request (`--debug`).
     map<string> signedHeaders = check auth:getSignedHeaders({
         method: "POST",
         host: agentCoreHost,

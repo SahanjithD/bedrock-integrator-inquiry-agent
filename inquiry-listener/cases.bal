@@ -232,7 +232,7 @@ isolated function conditionalUpdate(string caseId, string updateExpression, stri
     }
     dynamodb:ItemDescription|dynamodb:Error result = caseStore->updateItem(input);
     if result is dynamodb:Error {
-        // TODO(verify): the connector reports DynamoDB's `__type` as `errorCode`.
+        // The connector reports DynamoDB's error type (`__type`, without its prefix) as `errorCode`.
         aws:ErrorDetails details = result.detail();
         if details?.errorCode == CONDITION_FAILED {
             return ();

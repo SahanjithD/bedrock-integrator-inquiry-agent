@@ -1,7 +1,6 @@
 // Which gateway tools each action may use, and the checks a proposal must pass.
 
-// AgentCore Gateway exposes each target's tools as `<targetName><separator><toolName>`.
-// TODO(verify): confirm the separator against the gateway's tools/list response.
+// AgentCore Gateway exposes each target's tools as `<targetName>___<toolName>`.
 public const string GATEWAY_TOOL_SEPARATOR = "___";
 
 # Builds the name a gateway target exposes for one of its tools.

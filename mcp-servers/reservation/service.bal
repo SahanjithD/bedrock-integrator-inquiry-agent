@@ -24,8 +24,8 @@ function loadSeed() returns ReservationData & readonly|error {
 
 listener mcp:StreamableHttpListener mcpListener = check new (8000);
 
-// TODO(verify): AgentCore Runtime adds an Mcp-Session-Id header to each request; confirm that
-// STATELESS mode accepts it.
+// Stateless, so each request stands alone. It accepts the Mcp-Session-Id header AgentCore Runtime
+// adds to each request.
 @mcp:StreamableHttpServiceConfig {
     info: {name: "reservation-tools", version: "0.1.0"},
     sessionMode: mcp:STATELESS

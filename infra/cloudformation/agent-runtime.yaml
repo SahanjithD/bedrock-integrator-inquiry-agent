@@ -90,7 +90,6 @@ Resources:
               # AgentCore Runtime issues a workload access token for the runtime user ID the
               # listener sends, and the agent exchanges it for gateway tokens from its two
               # credential providers.
-              # TODO(verify): the actions and resources AgentCore Identity checks for these calls.
               - Sid: WorkloadIdentity
                 Effect: Allow
                 Action:
