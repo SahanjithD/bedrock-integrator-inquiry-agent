@@ -105,11 +105,25 @@ Gateway --token from its own credential provider--> MCP server runtimes
 
 ## Concurrency
 
-An `sqs:Listener` receives one message at a time and waits until it is handled. The jobs service
-is attached to five listeners and the decisions service to two, so one task keeps at most five
-investigations and two decisions open at once. Extra messages wait in the queues, which keeps
+An `sqs:Listener` receives one message at a time and waits until it is handled. The jobs queue has
+five listeners and the decisions queue two, each with its own service, so one task keeps at most
+five investigations and two decisions open at once. (`ballerinax/aws.sqs` keeps one message
+receiver per service, so one service attached to several listeners would handle one message at
+a time.) Extra messages wait in the queues, which keeps
 the load on the model within its quotas. AgentCore Runtime starts a separate session for each
 call.
+
+## Operations
+
+- **Polling errors.** The `ballerinax/aws.sqs` listener stops polling after an unexpected error
+  while receiving messages. The task keeps running but idle. If the logs show a polling error,
+  restart the ECS service (`aws ecs update-service --force-new-deployment`).
+- **Dead-letter queues.** A job that reaches its DLQ before it is claimed stays `QUEUED`; one
+  that fails after its third claimed attempt is marked `FAILED`. The portal's dead-letter list
+  (`GET /failures`) shows both.
+- **Tool data.** Each MCP server loads its synthetic data at startup and keeps changes in memory
+  for its runtime session only. Check a fix through the case status and the stored write-tool
+  response.
 
 ## Case statuses
 
@@ -199,5 +213,5 @@ Agent error answer (either action):
    from the applier credential provider (write scope).
 4. Write tools require an `approvalId` and are idempotent per `approvalId`.
 
-Gateway-side enforcement of scopes per tool is not configured in this sample (see Known limits
-in the main README).
+Gateway-side enforcement of scopes per tool is not configured in this sample (see "Not covered"
+in [security.md](security.md)).

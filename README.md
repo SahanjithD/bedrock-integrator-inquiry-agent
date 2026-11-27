@@ -273,39 +273,23 @@ The script works in reverse order. It deletes:
 
 Check its output for anything it reports as skipped.
 
-## Known limits
+## Before you use this in production
 
-The sample was deployed and run end to end in us-east-1 with Ballerina 2201.14.0 and AWS CLI
-2.39: deployment, investigations, approvals, a rejection and clean-up. These limits remain:
+This sample shows a pattern with synthetic data. It was deployed and run end to end in
+us-east-1 with Ballerina 2201.14.0 and AWS CLI 2.39. Before you adapt it:
 
-- **15-minute calls.** Each agent call is synchronous and must finish within 15 minutes. The
-  agent stops at 10 minutes and the job is retried, up to three times. Longer work would need a
-  streaming response (up to 60 minutes) or an asynchronous pattern.
-- **Bounded concurrency.** One listener task keeps at most five investigations and two decisions
-  open at once. To raise the limit, add listener declarations in `inquiry-listener/listeners.bal`.
-- **Visibility timeout, not heartbeats.** Both queues hide a received message for 20 minutes,
-  above the 15-minute call limit. If the listener task stops while a call is open, the message
-  becomes visible again after the timeout and is retried.
-- **Listener stops on polling errors.** The current `ballerinax/aws.sqs` listener stops polling
-  after an unexpected error while receiving messages. The task keeps running but idle. If the
-  logs show a polling error, restart the ECS service (`aws ecs update-service --force-new-deployment`).
-- **A job that reaches its DLQ before it is claimed stays `QUEUED`;** one that fails after its
-  third claimed attempt is marked `FAILED`. The portal's dead-letter list (`GET /failures`)
-  shows both.
-- **In-memory tool data:** each MCP server loads its synthetic data at startup and keeps
-  changes in memory for its runtime session only. Verify fixes through the case status and the
-  stored write-tool response.
-- **Scopes are not enforced per tool at the gateway.** The read and write split is enforced by
-  the agent (tool allow lists) and by separate Cognito clients, not by gateway policy.
-- **Guardrail scope:** personal data is masked in model output only; input is checked but not
-  changed. Card security codes are blocked.
-- **Approver identity is not authenticated:** the case records who decided (`decidedBy`), but
-  the portal has no sign-in and takes the name from the page or `Config.toml`. A real support
-  system would take it from the signed-in user and enforce who may approve which change.
-- **A failed or interrupted apply stops at `NEEDS_REVIEW`.** A person must check whether the
-  change was made.
-- **Public subnet** for the listener task, public network mode for the runtimes, and AWS owned
-  or managed encryption keys.
+- **Authenticate representatives.** The support portal has no sign-in. A real support system
+  would authenticate representatives and decide who may approve which change.
+- **Use private networking and your own keys.** Run the listener in private subnets with VPC
+  endpoints, use VPC network mode for the AgentCore runtimes, and use customer managed AWS KMS
+  keys.
+- **Authorize tools at the gateway.** The agent's tool lists and its two Cognito clients keep
+  investigations read-only. Add per-tool scope checks at AgentCore Gateway as a second line.
+- **Plan for long investigations.** Each agent call must finish within 15 minutes, the limit
+  for a synchronous AgentCore Runtime request. Longer work needs a streaming response.
+
+[docs/security.md](docs/security.md) and [docs/architecture.md](docs/architecture.md) cover the
+details, including retries, dead-letter queues and case statuses.
 
 ## License
 
