@@ -6,15 +6,15 @@
 
 | Component | Service | Role |
 | --- | --- | --- |
-| Support portal (stand-in) | `support-portal/` (WSO2 Integrator, runs locally) | Web page and REST API: creates the case, sends the job, shows findings, sends the decision |
+| Support portal (stand-in) | `support-portal/` (Choreo Integrator, runs locally) | Web page and REST API: creates the case, sends the job, shows findings, sends the decision |
 | Case item | Amazon DynamoDB | One item per case. Stands in for the ticket in the team's support system |
 | Jobs queue, decisions queue | Amazon SQS (standard, each with a DLQ) | Carry work from the portal |
-| Inquiry listener | WSO2 Integrator on Amazon ECS (Fargate, ARM64, one task) | Reads both queues, owns the case status, calls the agent |
-| Inquiry agent | WSO2 Integrator on Amazon Bedrock AgentCore Runtime | Investigates (read-only) or applies one approved change; holds no state |
+| Inquiry listener | Choreo Integrator on Amazon ECS (Fargate, ARM64, one task) | Reads both queues, owns the case status, calls the agent |
+| Inquiry agent | Choreo Integrator on Amazon Bedrock AgentCore Runtime | Investigates (read-only) or applies one approved change; holds no state |
 | Model and guardrail | Amazon Bedrock (Converse API) | Reasoning; personal data masked in output |
 | Knowledge base | Amazon Bedrock managed knowledge base | Runbooks and policies (S3 data source), resolved cases (custom data source) |
 | Tool endpoint | Amazon Bedrock AgentCore Gateway | One MCP endpoint for all tools, Cognito client-credentials inbound |
-| Internal systems | WSO2 Integrator MCP servers on AgentCore Runtime | Reservation, loyalty and payment tools over synthetic data |
+| Internal systems | Choreo Integrator MCP servers on AgentCore Runtime | Reservation, loyalty and payment tools over synthetic data |
 
 The listener and the agent are separate projects with separate permissions:
 

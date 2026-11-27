@@ -1,9 +1,9 @@
-# Customer inquiry agent with Amazon Bedrock and WSO2 Integrator
+# Customer inquiry agent with Amazon Bedrock and Choreo Integrator
 
 Sample code for the AWS blog post "Build grounded customer support agents with Amazon Bedrock
 and Choreo Integrator".
 
-An inquiry agent built with WSO2 Integrator picks up investigation jobs from
+An inquiry agent built with Choreo Integrator picks up investigation jobs from
 Amazon SQS, reasons with Amazon Bedrock models behind a guardrail, and
 retrieves runbooks and past cases from an Amazon Bedrock Managed Knowledge Base.
 It gathers evidence through Amazon Bedrock AgentCore Gateway, and every change
@@ -20,7 +20,7 @@ the checking to an agent and keeps the correction with a person:
 
 1. A representative sends an **investigation job** from a support portal.
 2. An **inquiry listener** on Amazon ECS picks up the job and calls the **inquiry agent** on
-   Amazon Bedrock AgentCore Runtime. Both are built with WSO2 Integrator (Ballerina). The agent
+   Amazon Bedrock AgentCore Runtime. Both are built with Choreo Integrator (Ballerina). The agent
    looks up the reservation,
    loyalty and payment records with **read-only tools**, and searches runbooks, policies and
    past cases in a **knowledge base**.
@@ -35,13 +35,13 @@ the checking to an agent and keeps the correction with a person:
 ![Architecture: inquiry listener on Amazon ECS, inquiry agent on AgentCore Runtime](docs/figure-2-architecture.png)
 
 - **Support portal:** representatives work cases in a support portal. In this sample a small
-  WSO2 Integrator service (`support-portal/`) stands in for it. You run it on your machine; it
+  Choreo Integrator service (`support-portal/`) stands in for it. You run it on your machine; it
   serves a web page and a REST API. Each case is an item in an Amazon DynamoDB table. In
   production, this record would be the ticket in the team's support system.
 - **Queues:** the portal sends investigation jobs to an Amazon SQS standard queue, and approve
   or reject decisions to a second queue. Each queue has a dead-letter queue (DLQ), used after
   three failed receives.
-- **Inquiry listener on Amazon ECS:** a WSO2 Integrator (Ballerina) service on AWS Fargate
+- **Inquiry listener on Amazon ECS:** a Choreo Integrator (Ballerina) service on AWS Fargate
   (ARM64, one task) with SQS listeners for both queues. It owns the case status and calls the
   agent with a SigV4-signed `InvokeAgentRuntime` request, using its task role. Each call names
   the representative who sent the job or decision as the runtime user ID.
@@ -56,7 +56,7 @@ the checking to an agent and keeps the correction with a person:
     approval of the same proposal is ignored while the first is applied.
   - Five listeners serve the jobs queue and two the decisions queue, so one task keeps at most
     five investigations and two decisions open at once.
-- **Inquiry agent on Amazon Bedrock AgentCore Runtime:** a WSO2 Integrator HTTP service (ARM64,
+- **Inquiry agent on Amazon Bedrock AgentCore Runtime:** a Choreo Integrator HTTP service (ARM64,
   port 8080). `POST /invocations` does the work synchronously and returns the result as JSON.
   `GET /ping` returns `Healthy`. The agent holds no state and has no access to SQS or DynamoDB.
 - **Amazon Bedrock:** the Converse API with a guardrail that masks personal data, and a managed
@@ -69,7 +69,7 @@ the checking to an agent and keeps the correction with a person:
   credential provider. The Cognito client secrets stay in AgentCore Identity. The gateway
   validates each token against Cognito, and uses a third credential provider for its own calls
   to the targets. The gateway's targets are reservation, loyalty and
-  payment MCP servers built with WSO2 Integrator and hosted on AgentCore Runtime. Each serves its
+  payment MCP servers built with Choreo Integrator and hosted on AgentCore Runtime. Each serves its
   own synthetic data. Investigations can use only the read-only tools; write tools are used only
   after approval.
 
@@ -92,10 +92,10 @@ built here. If you add one, list its read-only tools in `inquiry-agent/modules/c
 
 | Path | Contents |
 | --- | --- |
-| [`support-portal/`](support-portal/) | WSO2 Integrator (Ballerina) support portal you run locally: a web page and REST API to create cases, review findings, and approve or reject |
-| [`inquiry-listener/`](inquiry-listener/) | WSO2 Integrator (Ballerina) SQS listener for Amazon ECS: owns the case status and calls the agent |
-| [`inquiry-agent/`](inquiry-agent/) | WSO2 Integrator (Ballerina) inquiry agent for AgentCore Runtime: synchronous investigate and apply actions |
-| [`mcp-servers/`](mcp-servers/) | Reservation, loyalty and payment MCP servers (WSO2 Integrator) for AgentCore Runtime, with bundled synthetic data |
+| [`support-portal/`](support-portal/) | Choreo Integrator (Ballerina) support portal you run locally: a web page and REST API to create cases, review findings, and approve or reject |
+| [`inquiry-listener/`](inquiry-listener/) | Choreo Integrator (Ballerina) SQS listener for Amazon ECS: owns the case status and calls the agent |
+| [`inquiry-agent/`](inquiry-agent/) | Choreo Integrator (Ballerina) inquiry agent for AgentCore Runtime: synchronous investigate and apply actions |
+| [`mcp-servers/`](mcp-servers/) | Reservation, loyalty and payment MCP servers (Choreo Integrator) for AgentCore Runtime, with bundled synthetic data |
 | [`data/`](data/) | Runbooks, policies, seed resolved cases and the three sample inquiries |
 | [`infra/`](infra/) | CloudFormation templates (foundation, knowledge, MCP servers, agent runtime, listener on ECS) and request templates for the knowledge base and AgentCore |
 | [`scripts/`](scripts/) | Deploy steps, portal configuration, demo and clean-up (Bash, AWS CLI, `jq`, `curl`) |
@@ -114,7 +114,7 @@ built here. If you add one, list its read-only tools in `inquiry-agent/modules/c
   are ARM64: the agent and MCP servers for AgentCore Runtime, and the listener for Graviton
   Fargate.
 - `jq`, `curl` and Git.
-- [WSO2 Integrator](https://wso2.com/integrator/) 5.0.0 or later (Ballerina 2201.14.0), to run
+- [Choreo Integrator](https://wso2.com/integrator/) 5.0.0 or later (Ballerina 2201.14.0), to run
   the support portal and to build and test the packages locally.
 - AWS credentials for the support portal, which runs on your machine. They need:
   - `dynamodb:GetItem`, `dynamodb:PutItem`, `dynamodb:UpdateItem` and `dynamodb:Scan` on the
@@ -172,7 +172,7 @@ cd support-portal
 bal run
 ```
 
-Open http://localhost:9090. You can also open `support-portal/` in WSO2 Integrator and choose
+Open http://localhost:9090. You can also open `support-portal/` in Choreo Integrator and choose
 **Run**. The portal uses your default AWS credentials and the `Config.toml` that
 `deploy.sh` wrote. Run `./scripts/portal-config.sh` to write it again.
 

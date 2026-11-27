@@ -1,6 +1,6 @@
 # Support portal
 
-A WSO2 Integrator (Ballerina) HTTP service that stands in for a support team's portal. It runs on
+A Choreo Integrator (Ballerina) HTTP service that stands in for a support team's portal. It runs on
 your machine, not in AWS, and uses your default AWS credentials. It creates cases, sends
 investigation jobs and decisions to the SQS queues, and shows what the inquiry agent found.
 
@@ -27,7 +27,7 @@ from the **Representative** box on the page or, if that is empty, from `represen
 bal run
 ```
 
-Then open http://localhost:9090. You can also open `support-portal/` in WSO2 Integrator and
+Then open http://localhost:9090. You can also open `support-portal/` in Choreo Integrator and
 choose **Run**.
 
 `scripts/portal-config.sh` writes `Config.toml` from the deploy outputs. To fill it in by hand,

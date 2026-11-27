@@ -1,6 +1,6 @@
 # Inquiry agent
 
-A WSO2 Integrator (Ballerina) service on Amazon Bedrock AgentCore Runtime (HTTP protocol, ARM64,
+A Choreo Integrator (Ballerina) service on Amazon Bedrock AgentCore Runtime (HTTP protocol, ARM64,
 port 8080). It has no queue listener and holds no case state, and it has no access to SQS or
 DynamoDB. The inquiry listener on Amazon ECS (`../inquiry-listener`) calls it once per job or
 approved decision with `InvokeAgentRuntime`, and waits for the result.

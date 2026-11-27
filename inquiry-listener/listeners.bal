@@ -1,4 +1,4 @@
-// WSO2 Integrator SQS listeners for the jobs and decisions queues.
+// Choreo Integrator SQS listeners for the jobs and decisions queues.
 //
 // Concurrency: an `sqs:Listener` receives one message at a time and waits until the service
 // has handled it. Each agent call can stay open for several minutes, so the jobs queue has five
