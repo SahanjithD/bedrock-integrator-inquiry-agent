@@ -5,13 +5,28 @@
 source "$(dirname "$0")/lib.sh"
 require aws jq
 
-try() { "$@" >/dev/null 2>&1 || warn "Skipped (already gone or failed): $*"; }
+# Runs one delete. A resource that is already gone counts as deleted. Any other failure is
+# reported and returns non-zero, so the caller keeps the resource in .deploy/outputs.env for a
+# second run.
+failed=0
+try() {
+    local out
+    if out="$("$@" 2>&1)"; then
+        return 0
+    fi
+    if grep -qiE "not ?found|does not exist" <<<"${out}"; then
+        return 0
+    fi
+    warn "Not deleted: $* ($(tail -n 1 <<<"${out}"))"
+    failed=1
+    return 1
+}
 
 delete_stack() {
     local stack="$1"
     log "Deleting stack ${stack}"
-    try aws cloudformation delete-stack --stack-name "${stack}"
-    try aws cloudformation wait stack-delete-complete --stack-name "${stack}"
+    try aws cloudformation delete-stack --stack-name "${stack}" \
+        && try aws cloudformation wait stack-delete-complete --stack-name "${stack}" || true
 }
 
 # --- What will be deleted -------------------------------------------------------
@@ -42,16 +57,18 @@ for key in ListenerRepositoryUri ListenerImageTag ClusterName ServiceName Listen
 # --- Step 4: the agent on AgentCore Runtime ------------------------------------
 if [[ -n "${AgentRuntimeId:-}" ]]; then
     log "Deleting the inquiry agent runtime"
-    try aws bedrock-agentcore-control delete-agent-runtime --agent-runtime-id "${AgentRuntimeId}"
-    forget AgentRuntimeId; forget AgentRuntimeArn; forget AgentImage
+    if try aws bedrock-agentcore-control delete-agent-runtime --agent-runtime-id "${AgentRuntimeId}"; then
+        forget AgentRuntimeId; forget AgentRuntimeArn; forget AgentImage
+    fi
 fi
 
 for role in Investigator Applier; do
     key="${role}ProviderName"
     if [[ -n "${!key:-}" ]]; then
         log "Deleting the $(lowercase "${role}") credential provider"
-        try aws bedrock-agentcore-control delete-oauth2-credential-provider --name "${!key}"
-        forget "${key}"; forget "${role}ProviderSecretArn"
+        if try aws bedrock-agentcore-control delete-oauth2-credential-provider --name "${!key}"; then
+            forget "${key}"; forget "${role}ProviderSecretArn"; forget "${role}ProviderArn"
+        fi
     fi
 done
 
@@ -60,29 +77,33 @@ if [[ -n "${GatewayId:-}" ]]; then
     for key in ReservationTargetId LoyaltyTargetId PaymentTargetId; do
         if [[ -n "${!key:-}" ]]; then
             log "Deleting gateway target ${!key}"
-            try aws bedrock-agentcore-control delete-gateway-target \
-                --gateway-identifier "${GatewayId}" --target-id "${!key}"
-            forget "${key}"
+            if try aws bedrock-agentcore-control delete-gateway-target \
+                    --gateway-identifier "${GatewayId}" --target-id "${!key}"; then
+                forget "${key}"
+            fi
         fi
     done
     sleep 15
     log "Deleting gateway ${GatewayId}"
-    try aws bedrock-agentcore-control delete-gateway --gateway-identifier "${GatewayId}"
-    forget GatewayId; forget GatewayUrl
+    if try aws bedrock-agentcore-control delete-gateway --gateway-identifier "${GatewayId}"; then
+        forget GatewayId; forget GatewayUrl
+    fi
 fi
 
 if [[ -n "${OauthProviderName:-}" ]]; then
     log "Deleting the OAuth credential provider"
-    try aws bedrock-agentcore-control delete-oauth2-credential-provider --name "${OauthProviderName}"
-    forget OauthProviderName; forget OauthProviderArn
+    if try aws bedrock-agentcore-control delete-oauth2-credential-provider --name "${OauthProviderName}"; then
+        forget OauthProviderName; forget OauthProviderArn
+    fi
 fi
 
 for server in Reservation Loyalty Payment; do
     key="${server}McpRuntimeId"
     if [[ -n "${!key:-}" ]]; then
         log "Deleting the $(lowercase "${server}") MCP runtime"
-        try aws bedrock-agentcore-control delete-agent-runtime --agent-runtime-id "${!key}"
-        forget "${key}"; forget "${server}McpRuntimeArn"; forget "${server}McpImage"
+        if try aws bedrock-agentcore-control delete-agent-runtime --agent-runtime-id "${!key}"; then
+            forget "${key}"; forget "${server}McpRuntimeArn"; forget "${server}McpImage"
+        fi
     fi
 done
 
@@ -90,7 +111,7 @@ done
 while IFS= read -r group; do
     [[ -n "${group}" && "${group}" != "None" ]] || continue
     log "Deleting log group ${group}"
-    try aws logs delete-log-group --log-group-name "${group}"
+    try aws logs delete-log-group --log-group-name "${group}" || true
 done < <(aws logs describe-log-groups --log-group-name-prefix "/aws/bedrock-agentcore/runtimes/${RUNTIME_PREFIX}_" \
     --query 'logGroups[].logGroupName' --output text 2>/dev/null | tr '\t' '\n' || true)
 
@@ -108,14 +129,16 @@ if [[ -n "${KnowledgeBaseId:-}" ]]; then
     for key in S3DataSourceId CustomDataSourceId; do
         if [[ -n "${!key:-}" ]]; then
             log "Deleting data source ${!key}"
-            try aws bedrock-agent delete-data-source \
-                --knowledge-base-id "${KnowledgeBaseId}" --data-source-id "${!key}"
-            forget "${key}"
+            if try aws bedrock-agent delete-data-source \
+                    --knowledge-base-id "${KnowledgeBaseId}" --data-source-id "${!key}"; then
+                forget "${key}"
+            fi
         fi
     done
     log "Deleting knowledge base ${KnowledgeBaseId}"
-    try aws bedrock-agent delete-knowledge-base --knowledge-base-id "${KnowledgeBaseId}"
-    forget KnowledgeBaseId
+    if try aws bedrock-agent delete-knowledge-base --knowledge-base-id "${KnowledgeBaseId}"; then
+        forget KnowledgeBaseId
+    fi
 fi
 delete_stack "${KNOWLEDGE_STACK}"
 
@@ -127,5 +150,9 @@ fi
 
 delete_stack "${FOUNDATION_STACK}"
 
-rm -f "${OUTPUTS_FILE}" "${STATE_DIR}"/*.json
-log "Clean-up finished. Check the output above for anything reported as skipped."
+if [[ "${failed}" == "0" ]]; then
+    rm -f "${OUTPUTS_FILE}" "${STATE_DIR}"/*.json
+    log "Clean-up finished."
+else
+    warn "Some resources were not deleted (see above). .deploy/outputs.env still lists them; fix the cause and run this script again."
+fi

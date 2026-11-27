@@ -54,23 +54,19 @@ Each policy is below the 6,144-character limit for a managed policy.
   needs `GetWorkloadAccessToken`, `GetResourceOauth2Token` and `secretsmanager:GetSecretValue` on
   its own workload identities, credential providers and their secrets.
 
-## Check before you rely on them
+## Notes
 
-These policies were checked with an IAM policy linter and against the AWS SDK's operation names.
-They have not been tested against a live account. Before attaching them, the administrator can
-run them through the IAM policy simulator or IAM Access Analyzer's policy validation. Points to
-check:
+These policies were used for a full deployment, demo and clean-up in a shared account. Before
+attaching them in another account, run them through IAM Access Analyzer's policy validation.
 
-- **TODO(verify)** that CloudFormation passes the stack tags at creation time for the VPC
-  resources, the user pool (which also sets `Project` explicitly), the guardrail and the task
-  definition, so the `aws:RequestTag` conditions match. If one does not, relax the tag condition
-  for that one create action only.
-- **TODO(verify)** the condition keys and resource types that Amazon Bedrock AgentCore supports.
-  The policy scopes AgentCore by name pattern:
+- CloudFormation passes the stack tags at creation time, so the `aws:RequestTag` conditions
+  match. Subnets, the route table and the security group are created inside the listener's new
+  VPC, so those create actions are checked against the VPC's own tag (`aws:ResourceTag`).
+- AgentCore is scoped by name pattern:
   - runtimes `<prefix with underscores>_*`,
   - the gateway `<prefix>-gateway-*`,
-  - the credential provider `<prefix>-runtime-oauth`,
-  - workload identities and the credential provider's secret, which AgentCore creates for the
-    gateway.
-- **TODO(verify)** whether the account already has the service-linked roles that ECS and AgentCore
-  use. If not, the first deployment creates them, which needs `iam:CreateServiceLinkedRole`.
+  - the credential providers `<prefix>-runtime-oauth`, `<prefix>-investigator` and
+    `<prefix>-applier`,
+  - workload identities and the credential providers' secrets, which AgentCore Identity creates.
+- If the account does not have the service-linked roles that ECS and AgentCore use yet, the
+  first deployment creates them, which needs `iam:CreateServiceLinkedRole`.

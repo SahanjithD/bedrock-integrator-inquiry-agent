@@ -1,6 +1,6 @@
 # Inquiry listener
 
-A WSO2 Integrator (Ballerina) service on Amazon ECS (Fargate, ARM64, one task). It reads the
+A Choreo Integrator (Ballerina) service on Amazon ECS (Fargate, ARM64, one task). It reads the
 support portal's two SQS queues, owns the case status in DynamoDB, and calls the inquiry agent
 on Amazon Bedrock AgentCore Runtime (`../inquiry-agent`) for each job or approved decision. It
 has no HTTP endpoints and needs no secrets.

@@ -1,6 +1,6 @@
 {
   "agentRuntimeName": "",
-  "description": "Customer inquiry agent (WSO2 Integrator), called synchronously by the inquiry listener",
+  "description": "Customer inquiry agent (Choreo Integrator), called synchronously by the inquiry listener",
   "agentRuntimeArtifact": {
     "containerConfiguration": {"containerUri": ""}
   },

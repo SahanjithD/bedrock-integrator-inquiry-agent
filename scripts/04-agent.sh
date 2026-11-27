@@ -12,7 +12,6 @@
 #      principals with bedrock-agentcore:InvokeAgentRuntime - here, the listener's task role - can
 #      call it. The listener sends a runtime user ID, so the runtime passes the agent a workload
 #      access token, which the agent exchanges for gateway tokens.
-# TODO(verify): request fields against `aws bedrock-agentcore-control create-agent-runtime help`.
 source "$(dirname "$0")/lib.sh"
 require aws docker jq
 need GuardrailId GuardrailArn GuardrailVersion KnowledgeBaseId CustomDataSourceId GatewayUrl \

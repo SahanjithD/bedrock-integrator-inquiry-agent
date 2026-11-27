@@ -126,8 +126,8 @@ Resources:
               ArnLike:
                 aws:SourceArn: !Sub arn:aws:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:*
       Policies:
-        # TODO(verify): the exact actions the gateway needs to fetch outbound OAuth tokens
-        # from AgentCore Identity for MCP server targets.
+        # Lets the gateway fetch outbound OAuth tokens from AgentCore Identity for its MCP
+        # server targets.
         - PolicyName: outbound-oauth
           PolicyDocument:
             Version: "2012-10-17"

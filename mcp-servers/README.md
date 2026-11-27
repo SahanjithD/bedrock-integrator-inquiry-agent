@@ -1,6 +1,6 @@
 # Internal MCP servers
 
-Three WSO2 Integrator (Ballerina) MCP servers stand in for a hotel and resort group's internal
+Three Choreo Integrator (Ballerina) MCP servers stand in for a hotel and resort group's internal
 reservation, loyalty and payment systems. Each one runs on Amazon Bedrock AgentCore Runtime
 with the MCP protocol and is registered as a target on Amazon Bedrock AgentCore Gateway. The
 inquiry agent reaches all of them through the gateway's one MCP endpoint.

@@ -6,8 +6,8 @@
 # The guardrail and the knowledge base service role are in infra/cloudformation/knowledge.yaml.
 # The knowledge base request bodies are in infra/knowledge-base/; the managed knowledge base
 # and custom source mirror what the ballerinax/ai.aws.bedrock module sends.
-# TODO(verify): your AWS CLI version supports the MANAGED knowledge base type and
-# `ingest-knowledge-base-documents`.
+# Needs an AWS CLI v2 recent enough to support the MANAGED knowledge base type and
+# `ingest-knowledge-base-documents` (tested with 2.39).
 source "$(dirname "$0")/lib.sh"
 require aws jq
 need KnowledgeBucketName

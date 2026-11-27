@@ -66,7 +66,7 @@ if grep -q "linux/arm64" <<<"${builders}"; then
 else
     unknown "no Buildx builder lists linux/arm64; install QEMU emulation or use an ARM64 machine"
 fi
-if command -v bal >/dev/null 2>&1; then pass "bal ($(bal version 2>/dev/null | head -1))"; else unknown "bal not found; install WSO2 Integrator to run the support portal"; fi
+if command -v bal >/dev/null 2>&1; then pass "bal ($(bal version 2>/dev/null | head -1))"; else unknown "bal not found; install Choreo Integrator to run the support portal"; fi
 
 # ---------------------------------------------------------------------------
 if [[ -n "${CaseTableName:-}" ]]; then

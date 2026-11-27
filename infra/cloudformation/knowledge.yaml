@@ -80,8 +80,8 @@ Resources:
               ArnLike:
                 aws:SourceArn: !Sub arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/*
       Policies:
-        # TODO(verify): any further permissions a MANAGED knowledge base needs beyond reading
-        # its S3 source (Bedrock owns the vector store and the managed embedding model).
+        # A MANAGED knowledge base needs only to read its S3 source: Bedrock owns the vector
+        # store and the managed embedding model.
         - PolicyName: read-knowledge-source
           PolicyDocument:
             Version: "2012-10-17"

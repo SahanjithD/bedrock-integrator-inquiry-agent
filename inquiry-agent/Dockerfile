@@ -2,7 +2,6 @@
 #   docker buildx build --platform linux/arm64 -t inquiry-agent .
 #
 # The build stage runs on the build machine's own platform (the JAR is platform independent).
-# TODO(verify): image tags for Ballerina 2201.14.0 and the Java runtime it targets (Java 25).
 FROM --platform=$BUILDPLATFORM ballerina/ballerina:2201.14.0 AS build
 WORKDIR /home/ballerina/src
 COPY --chown=ballerina:ballerina . .

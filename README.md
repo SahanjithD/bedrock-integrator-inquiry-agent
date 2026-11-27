@@ -1,14 +1,15 @@
-# Customer inquiry agent with Amazon Bedrock and WSO2 Integrator
+# Customer inquiry agent with Amazon Bedrock and Choreo Integrator
 
-Sample code for the AWS blog post "[article title]".
+Sample code for the AWS blog post "Build grounded customer support agents with Amazon Bedrock
+and Choreo Integrator".
 
-An inquiry agent built with WSO2 Integrator picks up investigation jobs from
+An inquiry agent built with Choreo Integrator picks up investigation jobs from
 Amazon SQS, reasons with Amazon Bedrock models behind a guardrail, and
 retrieves runbooks and past cases from an Amazon Bedrock Managed Knowledge Base.
 It gathers evidence through Amazon Bedrock AgentCore Gateway, and every change
 it proposes waits for a person's approval.
 
-> Work in progress. Uses synthetic data only.
+> Uses synthetic data only.
 
 ## Overview
 
@@ -19,7 +20,7 @@ the checking to an agent and keeps the correction with a person:
 
 1. A representative sends an **investigation job** from a support portal.
 2. An **inquiry listener** on Amazon ECS picks up the job and calls the **inquiry agent** on
-   Amazon Bedrock AgentCore Runtime. Both are built with WSO2 Integrator (Ballerina). The agent
+   Amazon Bedrock AgentCore Runtime. Both are built with Choreo Integrator (Ballerina). The agent
    looks up the reservation,
    loyalty and payment records with **read-only tools**, and searches runbooks, policies and
    past cases in a **knowledge base**.
@@ -34,13 +35,13 @@ the checking to an agent and keeps the correction with a person:
 ![Architecture: inquiry listener on Amazon ECS, inquiry agent on AgentCore Runtime](docs/figure-2-architecture.png)
 
 - **Support portal:** representatives work cases in a support portal. In this sample a small
-  WSO2 Integrator service (`support-portal/`) stands in for it. You run it on your machine; it
+  Choreo Integrator service (`support-portal/`) stands in for it. You run it on your machine; it
   serves a web page and a REST API. Each case is an item in an Amazon DynamoDB table. In
   production, this record would be the ticket in the team's support system.
 - **Queues:** the portal sends investigation jobs to an Amazon SQS standard queue, and approve
   or reject decisions to a second queue. Each queue has a dead-letter queue (DLQ), used after
   three failed receives.
-- **Inquiry listener on Amazon ECS:** a WSO2 Integrator (Ballerina) service on AWS Fargate
+- **Inquiry listener on Amazon ECS:** a Choreo Integrator (Ballerina) service on AWS Fargate
   (ARM64, one task) with SQS listeners for both queues. It owns the case status and calls the
   agent with a SigV4-signed `InvokeAgentRuntime` request, using its task role. Each call names
   the representative who sent the job or decision as the runtime user ID.
@@ -55,7 +56,7 @@ the checking to an agent and keeps the correction with a person:
     approval of the same proposal is ignored while the first is applied.
   - Five listeners serve the jobs queue and two the decisions queue, so one task keeps at most
     five investigations and two decisions open at once.
-- **Inquiry agent on Amazon Bedrock AgentCore Runtime:** a WSO2 Integrator HTTP service (ARM64,
+- **Inquiry agent on Amazon Bedrock AgentCore Runtime:** a Choreo Integrator HTTP service (ARM64,
   port 8080). `POST /invocations` does the work synchronously and returns the result as JSON.
   `GET /ping` returns `Healthy`. The agent holds no state and has no access to SQS or DynamoDB.
 - **Amazon Bedrock:** the Converse API with a guardrail that masks personal data, and a managed
@@ -68,7 +69,7 @@ the checking to an agent and keeps the correction with a person:
   credential provider. The Cognito client secrets stay in AgentCore Identity. The gateway
   validates each token against Cognito, and uses a third credential provider for its own calls
   to the targets. The gateway's targets are reservation, loyalty and
-  payment MCP servers built with WSO2 Integrator and hosted on AgentCore Runtime. Each serves its
+  payment MCP servers built with Choreo Integrator and hosted on AgentCore Runtime. Each serves its
   own synthetic data. Investigations can use only the read-only tools; write tools are used only
   after approval.
 
@@ -91,10 +92,10 @@ built here. If you add one, list its read-only tools in `inquiry-agent/modules/c
 
 | Path | Contents |
 | --- | --- |
-| [`support-portal/`](support-portal/) | WSO2 Integrator (Ballerina) support portal you run locally: a web page and REST API to create cases, review findings, and approve or reject |
-| [`inquiry-listener/`](inquiry-listener/) | WSO2 Integrator (Ballerina) SQS listener for Amazon ECS: owns the case status and calls the agent |
-| [`inquiry-agent/`](inquiry-agent/) | WSO2 Integrator (Ballerina) inquiry agent for AgentCore Runtime: synchronous investigate and apply actions |
-| [`mcp-servers/`](mcp-servers/) | Reservation, loyalty and payment MCP servers (WSO2 Integrator) for AgentCore Runtime, with bundled synthetic data |
+| [`support-portal/`](support-portal/) | Choreo Integrator (Ballerina) support portal you run locally: a web page and REST API to create cases, review findings, and approve or reject |
+| [`inquiry-listener/`](inquiry-listener/) | Choreo Integrator (Ballerina) SQS listener for Amazon ECS: owns the case status and calls the agent |
+| [`inquiry-agent/`](inquiry-agent/) | Choreo Integrator (Ballerina) inquiry agent for AgentCore Runtime: synchronous investigate and apply actions |
+| [`mcp-servers/`](mcp-servers/) | Reservation, loyalty and payment MCP servers (Choreo Integrator) for AgentCore Runtime, with bundled synthetic data |
 | [`data/`](data/) | Runbooks, policies, seed resolved cases and the three sample inquiries |
 | [`infra/`](infra/) | CloudFormation templates (foundation, knowledge, MCP servers, agent runtime, listener on ECS) and request templates for the knowledge base and AgentCore |
 | [`scripts/`](scripts/) | Deploy steps, portal configuration, demo and clean-up (Bash, AWS CLI, `jq`, `curl`) |
@@ -113,7 +114,7 @@ built here. If you add one, list its read-only tools in `inquiry-agent/modules/c
   are ARM64: the agent and MCP servers for AgentCore Runtime, and the listener for Graviton
   Fargate.
 - `jq`, `curl` and Git.
-- [WSO2 Integrator](https://wso2.com/integrator/) 5.0.0 or later (Ballerina 2201.14.0), to run
+- [Choreo Integrator](https://wso2.com/integrator/) 5.0.0 or later (Ballerina 2201.14.0), to run
   the support portal and to build and test the packages locally.
 - AWS credentials for the support portal, which runs on your machine. They need:
   - `dynamodb:GetItem`, `dynamodb:PutItem`, `dynamodb:UpdateItem` and `dynamodb:Scan` on the
@@ -147,9 +148,9 @@ built here. If you add one, list its read-only tools in `inquiry-agent/modules/c
    | | `portal-config.sh` | `support-portal/Config.toml`, from the deploy outputs |
    | 6 | `06-demo.sh` | Not part of `deploy.sh`: creates the three sample cases through the running portal and waits for their investigations |
 
-Some AgentCore and managed knowledge base requests are marked `TODO(verify)` because those
-APIs are new. If a step fails, check the request template it uses in `infra/` against the
-current AWS CLI reference. See [Known limits](#known-limits).
+The AgentCore and managed knowledge base requests use recent AWS CLI commands. If a step fails
+with an unknown command or parameter, update the AWS CLI, then compare the request template the
+step uses in `infra/` with the current AWS CLI reference.
 
 To follow the listener while it works:
 
@@ -171,7 +172,7 @@ cd support-portal
 bal run
 ```
 
-Open http://localhost:9090. You can also open `support-portal/` in WSO2 Integrator and choose
+Open http://localhost:9090. You can also open `support-portal/` in Choreo Integrator and choose
 **Run**. The portal uses your default AWS credentials and the `Config.toml` that
 `deploy.sh` wrote. Run `./scripts/portal-config.sh` to write it again.
 
@@ -272,53 +273,23 @@ The script works in reverse order. It deletes:
 
 Check its output for anything it reports as skipped.
 
-## Known limits
+## Before you use this in production
 
-- **Not compiled in this repository's history.** The Ballerina code was written against the
-  current source of these modules, but has not been built with `bal build` here. Run
-  `bal build` and `bal test` in each package before you deploy.
-  - `ballerina/ai`, `ballerina/mcp`
-  - `ballerinax/ai.aws.bedrock`, `ballerinax/aws`, `ballerinax/aws.sqs`, `ballerinax/aws.dynamodb`
-- **Items marked `TODO(verify)`:** search the repository for `TODO(verify)`. They cover:
-  - the AgentCore CLI request shapes (runtimes, gateway, targets, OAuth credential providers),
-  - the `WorkloadAccessToken` header AgentCore Runtime passes to the agent, and the IAM actions
-    for the runtime user ID (`InvokeAgentRuntimeForUser`) and for `GetResourceOauth2Token`,
-  - the gateway tool-name prefix (`<target>___<tool>`),
-  - IAM details for managed knowledge bases and the gateway,
-  - how the DynamoDB connector reports a failed condition,
-  - attaching one SQS service to several `sqs:Listener` objects, which the listener uses to
-    bound concurrency,
-  - the Ballerina and Java image tags,
-  - whether the Ballerina MCP stateless mode accepts the `Mcp-Session-Id` header AgentCore
-    Runtime adds.
-- **15-minute calls.** Each agent call is synchronous and must finish within 15 minutes. The
-  agent stops at 10 minutes and the job is retried, up to three times. Longer work would need a
-  streaming response (up to 60 minutes) or an asynchronous pattern.
-- **Bounded concurrency.** One listener task keeps at most five investigations and two decisions
-  open at once. To raise the limit, add listener declarations in `inquiry-listener/listeners.bal`.
-- **Visibility timeout, not heartbeats.** Both queues hide a received message for 20 minutes,
-  above the 15-minute call limit. If the listener task stops while a call is open, the message
-  becomes visible again after the timeout and is retried.
-- **Listener stops on polling errors.** The current `ballerinax/aws.sqs` listener stops polling
-  after an unexpected error while receiving messages. The task keeps running but idle. If the
-  logs show a polling error, restart the ECS service (`aws ecs update-service --force-new-deployment`).
-- **A job that reaches its DLQ before it is claimed stays `QUEUED`;** one that fails after its
-  third claimed attempt is marked `FAILED`. The portal's dead-letter list (`GET /failures`)
-  shows both.
-- **In-memory tool data:** each MCP server loads its synthetic data at startup and keeps
-  changes in memory for its runtime session only. Verify fixes through the case status and the
-  stored write-tool response.
-- **Scopes are not enforced per tool at the gateway.** The read and write split is enforced by
-  the agent (tool allow lists) and by separate Cognito clients, not by gateway policy.
-- **Guardrail scope:** personal data is masked in model output only; input is checked but not
-  changed. Card security codes are blocked.
-- **Approver identity is not authenticated:** the case records who decided (`decidedBy`), but
-  the portal has no sign-in and takes the name from the page or `Config.toml`. A real support
-  system would take it from the signed-in user and enforce who may approve which change.
-- **A failed or interrupted apply stops at `NEEDS_REVIEW`.** A person must check whether the
-  change was made.
-- **Public subnet** for the listener task, public network mode for the runtimes, and AWS owned
-  or managed encryption keys.
+This sample shows a pattern with synthetic data. It was deployed and run end to end in
+us-east-1 with Ballerina 2201.14.0 and AWS CLI 2.39. Before you adapt it:
+
+- **Authenticate representatives.** The support portal has no sign-in. A real support system
+  would authenticate representatives and decide who may approve which change.
+- **Use private networking and your own keys.** Run the listener in private subnets with VPC
+  endpoints, use VPC network mode for the AgentCore runtimes, and use customer managed AWS KMS
+  keys.
+- **Authorize tools at the gateway.** The agent's tool lists and its two Cognito clients keep
+  investigations read-only. Add per-tool scope checks at AgentCore Gateway as a second line.
+- **Plan for long investigations.** Each agent call must finish within 15 minutes, the limit
+  for a synchronous AgentCore Runtime request. Longer work needs a streaming response.
+
+[docs/security.md](docs/security.md) and [docs/architecture.md](docs/architecture.md) cover the
+details, including retries, dead-letter queues and case statuses.
 
 ## License
 

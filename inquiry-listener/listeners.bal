@@ -1,12 +1,12 @@
-// WSO2 Integrator SQS listeners for the jobs and decisions queues.
+// Choreo Integrator SQS listeners for the jobs and decisions queues.
 //
 // Concurrency: an `sqs:Listener` receives one message at a time and waits until the service
-// has handled it. Each agent call can stay open for several minutes, so the jobs service is
-// attached to five listeners and the decisions service to two. One task therefore runs at most
-// five investigations and two decisions at once. To change the limit, add or remove listener
-// declarations.
-// TODO(verify): that `ballerinax/aws.sqs` polls independently for one service attached to
-// several listeners (each listener creates its own receiver when the service is attached).
+// has handled it. Each agent call can stay open for several minutes, so the jobs queue has five
+// listeners and the decisions queue two. One task therefore runs at most five investigations and
+// two decisions at once. To change the limit, add or remove a listener and its service.
+//
+// Each listener has its own service. `ballerinax/aws.sqs` keeps one message receiver per service,
+// so a single service attached to several listeners would still receive one message at a time.
 //
 // Messages are never deleted automatically (`autoDelete: false`). A message is deleted only
 // after its work is saved, or when there is nothing left to do (for example a duplicate). If
@@ -21,6 +21,19 @@ import ballerinax/aws.sqs;
 
 final sqs:ConnectionConfig & readonly connection = {region: awsRegion, auth: auth:DEFAULT_CREDENTIALS};
 
+// A received job stays hidden for longer than the longest agent call (15 minutes).
+final sqs:ServiceConfigType & readonly jobService = {
+    queueUrl: jobQueueUrl,
+    autoDelete: false,
+    config: {waitTime: 20, visibilityTimeout: jobVisibilitySeconds, pollInterval: 1}
+};
+
+final sqs:ServiceConfigType & readonly decisionService = {
+    queueUrl: decisionQueueUrl,
+    autoDelete: false,
+    config: {waitTime: 20, visibilityTimeout: decisionVisibilitySeconds, pollInterval: 1}
+};
+
 listener sqs:Listener jobListener1 = new (connection);
 listener sqs:Listener jobListener2 = new (connection);
 listener sqs:Listener jobListener3 = new (connection);
@@ -30,23 +43,10 @@ listener sqs:Listener jobListener5 = new (connection);
 listener sqs:Listener decisionListener1 = new (connection);
 listener sqs:Listener decisionListener2 = new (connection);
 
-@sqs:ServiceConfig {
-    queueUrl: jobQueueUrl,
-    autoDelete: false,
-    // A received job stays hidden for longer than the longest agent call (15 minutes).
-    config: {waitTime: 20, visibilityTimeout: jobVisibilitySeconds, pollInterval: 1}
-}
-isolated service on jobListener1, jobListener2, jobListener3, jobListener4, jobListener5 {
-
+@sqs:ServiceConfig {...jobService}
+isolated service on jobListener1 {
     isolated remote function onMessage(sqs:Caller caller, sqs:Message message) returns error? {
-        string messageId = message?.messageId ?: "";
-        error? result = processJob(message, messageId);
-        if result is error {
-            log:printError("Job failed; it will be retried", result, messageId = messageId);
-            retryLater(jobQueueUrl, message);
-            return;
-        }
-        check caller->delete();
+        return onJob(caller, message);
     }
 
     isolated remote function onError(sqs:Error err) {
@@ -54,26 +54,101 @@ isolated service on jobListener1, jobListener2, jobListener3, jobListener4, jobL
     }
 }
 
-@sqs:ServiceConfig {
-    queueUrl: decisionQueueUrl,
-    autoDelete: false,
-    config: {waitTime: 20, visibilityTimeout: decisionVisibilitySeconds, pollInterval: 1}
-}
-isolated service on decisionListener1, decisionListener2 {
-
+@sqs:ServiceConfig {...jobService}
+isolated service on jobListener2 {
     isolated remote function onMessage(sqs:Caller caller, sqs:Message message) returns error? {
-        error? result = processDecision(message, message?.messageId ?: "");
-        if result is error {
-            log:printError("Decision failed; it will be retried", result, messageId = message?.messageId);
-            retryLater(decisionQueueUrl, message);
-            return;
-        }
-        check caller->delete();
+        return onJob(caller, message);
+    }
+
+    isolated remote function onError(sqs:Error err) {
+        log:printError("Jobs queue listener error", err);
+    }
+}
+
+@sqs:ServiceConfig {...jobService}
+isolated service on jobListener3 {
+    isolated remote function onMessage(sqs:Caller caller, sqs:Message message) returns error? {
+        return onJob(caller, message);
+    }
+
+    isolated remote function onError(sqs:Error err) {
+        log:printError("Jobs queue listener error", err);
+    }
+}
+
+@sqs:ServiceConfig {...jobService}
+isolated service on jobListener4 {
+    isolated remote function onMessage(sqs:Caller caller, sqs:Message message) returns error? {
+        return onJob(caller, message);
+    }
+
+    isolated remote function onError(sqs:Error err) {
+        log:printError("Jobs queue listener error", err);
+    }
+}
+
+@sqs:ServiceConfig {...jobService}
+isolated service on jobListener5 {
+    isolated remote function onMessage(sqs:Caller caller, sqs:Message message) returns error? {
+        return onJob(caller, message);
+    }
+
+    isolated remote function onError(sqs:Error err) {
+        log:printError("Jobs queue listener error", err);
+    }
+}
+
+@sqs:ServiceConfig {...decisionService}
+isolated service on decisionListener1 {
+    isolated remote function onMessage(sqs:Caller caller, sqs:Message message) returns error? {
+        return onDecision(caller, message);
     }
 
     isolated remote function onError(sqs:Error err) {
         log:printError("Decisions queue listener error", err);
     }
+}
+
+@sqs:ServiceConfig {...decisionService}
+isolated service on decisionListener2 {
+    isolated remote function onMessage(sqs:Caller caller, sqs:Message message) returns error? {
+        return onDecision(caller, message);
+    }
+
+    isolated remote function onError(sqs:Error err) {
+        log:printError("Decisions queue listener error", err);
+    }
+}
+
+# Handles one job and deletes its message, or makes it visible again sooner to retry.
+#
+# + caller - The caller of the listener that received the message
+# + message - The job message
+# + return - An error if the message could not be deleted
+isolated function onJob(sqs:Caller caller, sqs:Message message) returns error? {
+    string messageId = message?.messageId ?: "";
+    error? result = processJob(message, messageId);
+    if result is error {
+        log:printError("Job failed; it will be retried", result, messageId = messageId);
+        retryLater(jobQueueUrl, message);
+        return;
+    }
+    check caller->delete();
+}
+
+# Handles one decision and deletes its message, or makes it visible again sooner to retry.
+#
+# + caller - The caller of the listener that received the message
+# + message - The decision message
+# + return - An error if the message could not be deleted
+isolated function onDecision(sqs:Caller caller, sqs:Message message) returns error? {
+    error? result = processDecision(message, message?.messageId ?: "");
+    if result is error {
+        log:printError("Decision failed; it will be retried", result, messageId = message?.messageId);
+        retryLater(decisionQueueUrl, message);
+        return;
+    }
+    check caller->delete();
 }
 
 isolated function processJob(sqs:Message message, string messageId) returns error? {
